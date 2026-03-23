@@ -1771,7 +1771,7 @@ function NPCGraph({ npcs, factions, onNodeClick }) {
       .force("link", d3.forceLink(simLinks).id(d => d.id).distance(120))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(w / 2, h / 2))
-      .force("collide", d3.forceCollide().radius(30));
+      .force("collide", d3.forceCollide().radius(d => Math.max(10, Math.min(28, 10 + d.connectionCount * 3)) + 8));
 
     simRef.current = sim;
 
@@ -1883,6 +1883,18 @@ function NPCGraph({ npcs, factions, onNodeClick }) {
             if (node.x == null) return null;
             const isHov = hovNode === node.id;
             const color = getFactionColor(node);
+            const r = Math.max(10, Math.min(28, 10 + node.connectionCount * 3)) + (isHov ? 3 : 0);
+            // Initials: first letter of first + last word
+            const words = node.name.trim().split(/\s+/);
+            const inits = words.length === 1
+              ? words[0].slice(0, 2).toUpperCase()
+              : (words[0][0] + words[words.length - 1][0]).toUpperCase();
+            // Auto-contrast text color against faction fill
+            const rgb = color.match(/[\da-f]{2}/gi) || [];
+            const lum = rgb.length === 3
+              ? (0.299 * parseInt(rgb[0], 16) + 0.587 * parseInt(rgb[1], 16) + 0.114 * parseInt(rgb[2], 16)) / 255
+              : 0;
+            const tc = lum > 0.55 ? "#1a1510" : "#f5edd8";
             const firstName = node.name.split(" ")[0];
             const label = firstName.length > 13 ? firstName.slice(0, 12) + "…" : firstName;
             return (
@@ -1893,7 +1905,6 @@ function NPCGraph({ npcs, factions, onNodeClick }) {
                 onMouseEnter={(e) => {
                   setHovNode(node.id);
                   const rect = containerRef.current.getBoundingClientRect();
-                  // Convert SVG node coords to container-relative coords
                   setTooltip({
                     type: "node",
                     x: node.x * tk + tx,
@@ -1903,12 +1914,22 @@ function NPCGraph({ npcs, factions, onNodeClick }) {
                 }}
                 onMouseLeave={() => { setHovNode(null); setTooltip(null); }}
               >
-                <circle r={isHov ? 15 : 12} fill={color} stroke={isHov ? "#c8a84e" : "#2a2218"} strokeWidth={2} />
-                <text
-                  textAnchor="middle" y={22} fontSize={9}
+                {/* Filled circle — faction colour fill, faction colour stroke */}
+                <circle r={r} fill={color}
+                  stroke={isHov ? "#e8c84e" : color}
+                  strokeWidth={isHov ? 3 : 2} />
+                {/* Initials */}
+                <text textAnchor="middle" dy="0.35em"
+                  fontSize={Math.max(8, Math.round(r * 0.52))}
+                  fill={tc} fontWeight="bold"
+                  fontFamily="'Cinzel Decorative', cursive"
+                  style={{ pointerEvents: "none" }}>
+                  {inits}
+                </text>
+                {/* Name label below */}
+                <text textAnchor="middle" y={r + 13} fontSize={9}
                   fill="#8a7d65" fontFamily="'MedievalSharp', cursive"
-                  style={{ pointerEvents: "none" }}
-                >
+                  style={{ pointerEvents: "none" }}>
                   {label}
                 </text>
               </g>
