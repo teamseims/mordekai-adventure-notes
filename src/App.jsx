@@ -16,8 +16,9 @@ const DEFAULT_DATA = {
   quests: [],
   locations: [],
   maps: [],
+  factions: [],
   pcs: DEFAULT_PCS,
-  nextIds: { session: 1, npc: 1, quest: 1, location: 1, map: 1 },
+  nextIds: { session: 1, npc: 1, quest: 1, location: 1, map: 1, faction: 1 },
 };
 
 const NPC_STATUSES = ["Alive", "Dead", "Unknown", "Missing"];
@@ -818,6 +819,82 @@ body, html {
   border: 1px solid var(--border);
   margin: 10px 0;
 }
+
+/* ─── View toggle (list / web) ─── */
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.view-toggle button {
+  background: transparent;
+  border: none;
+  padding: 7px 13px;
+  color: var(--text-dim);
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-toggle button.active {
+  background: var(--gold-dim);
+  color: var(--parchment);
+}
+
+/* ─── NPC Web ─── */
+.npc-web-svg {
+  width: 100%;
+  background: var(--parchment-light);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+  touch-action: none;
+  user-select: none;
+}
+
+/* ─── Factions ─── */
+.faction-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.faction-swatch {
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid var(--border);
+}
+.color-picker-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.color-swatch-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+.color-swatch-btn.selected {
+  border-color: var(--text-bright);
+  transform: scale(1.2);
+}
+.faction-member-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--parchment-lighter);
+  color: var(--text);
+  border: 1px solid var(--border);
+  margin: 2px;
+  cursor: default;
+}
 `;
 
 // ─────────────────────────────────────────────
@@ -1039,6 +1116,7 @@ function SessionTab({ data, setData, save }) {
 // ─── NPC REGISTRY ───
 function NPCTab({ data, setData, save }) {
   const [view, setView] = useState("list");
+  const [displayMode, setDisplayMode] = useState("list"); // "list" | "web"
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -1046,6 +1124,7 @@ function NPCTab({ data, setData, save }) {
   const [confirmDel, setConfirmDel] = useState(null);
   const [encForm, setEncForm] = useState({ sessionNum: "", note: "" });
   const [connForm, setConnForm] = useState({ npcId: "", relationship: "" });
+  const [webPositions, setWebPositions] = useState({});
 
   const npcs = data.npcs || [];
 
@@ -1071,7 +1150,7 @@ function NPCTab({ data, setData, save }) {
   }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   const openNew = () => {
-    setForm({ name: "", location: "", faction: "", status: "Alive", attitude: "Neutral", race: "", appearance: "", distinguishing: "", connections: [], belongings: "", notes: "", encounters: [] });
+    setForm({ name: "", location: "", faction: "", factionId: "", status: "Alive", attitude: "Neutral", race: "", appearance: "", distinguishing: "", connections: [], belongings: "", notes: "", encounters: [] });
     setEditId(null);
     setConnForm({ npcId: "", relationship: "" });
     setView("form");
@@ -1188,7 +1267,22 @@ function NPCTab({ data, setData, save }) {
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Faction / Affiliation</label>
-            <input className="form-input" placeholder="Faction or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
+            {(data.factions || []).length > 0 ? (
+              <>
+                <select className="form-select" value={form.factionId || ""} onChange={e => {
+                  const fac = (data.factions || []).find(f => f.id === e.target.value);
+                  setForm({ ...form, factionId: e.target.value, faction: fac ? fac.name : "" });
+                }}>
+                  <option value="">— None / Custom —</option>
+                  {(data.factions || []).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                {!form.factionId && (
+                  <input className="form-input" placeholder="Custom faction / group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} style={{ marginTop: 4 }} />
+                )}
+              </>
+            ) : (
+              <input className="form-input" placeholder="Faction or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
+            )}
           </div>
         </div>
         <div className="form-row">
@@ -1355,18 +1449,47 @@ function NPCTab({ data, setData, save }) {
     );
   }
 
+  const factionName = (n) => {
+    if (n.factionId) {
+      const f = (data.factions || []).find(f => f.id === n.factionId);
+      return f ? f.name : n.faction;
+    }
+    return n.faction;
+  };
+  const factionColor = (n) => {
+    if (n.factionId) {
+      const f = (data.factions || []).find(f => f.id === n.factionId);
+      return f ? f.color : null;
+    }
+    return null;
+  };
+
   return (
     <div>
       <div className="toolbar">
         <input className="search-input" placeholder="Search NPCs..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="view-toggle">
+          <button className={displayMode === "list" ? "active" : ""} onClick={() => setDisplayMode("list")}>List</button>
+          <button className={displayMode === "web" ? "active" : ""} onClick={() => setDisplayMode("web")}>Web</button>
+        </div>
         <button className="btn btn-primary" onClick={openNew}>+ New NPC</button>
       </div>
-      <div className="filter-row">
-        {["All", ...NPC_STATUSES].map(s => (
-          <button key={s} className={`filter-pill ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(s)}>{s}</button>
-        ))}
-      </div>
-      {filtered.length === 0 ? (
+      {displayMode === "list" && (
+        <div className="filter-row">
+          {["All", ...NPC_STATUSES].map(s => (
+            <button key={s} className={`filter-pill ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(s)}>{s}</button>
+          ))}
+        </div>
+      )}
+      {displayMode === "web" ? (
+        <NPCWeb
+          npcs={npcs}
+          factions={data.factions || []}
+          positions={webPositions}
+          setPositions={setWebPositions}
+          onSelectNpc={(id) => { setEditId(id); setEncForm({ sessionNum: "", note: "" }); setView("detail"); }}
+        />
+      ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="icon">👤</div>
           <p>{search || statusFilter !== "All" ? "No NPCs match your filters." : "No NPCs recorded yet."}</p>
@@ -1377,6 +1500,8 @@ function NPCTab({ data, setData, save }) {
           {filtered.map(n => {
             const encCount = (n.encounters || []).length;
             const connCount = (Array.isArray(n.connections) ? n.connections : []).length;
+            const facName = factionName(n);
+            const facColor = factionColor(n);
             return (
               <div key={n.id} className="card" onClick={() => { setEditId(n.id); setView("detail"); }}>
                 <div className="card-header">
@@ -1385,7 +1510,12 @@ function NPCTab({ data, setData, save }) {
                     <div className="card-meta">
                       {n.race && <span>{n.race}</span>}
                       {n.location && <span style={{ marginLeft: n.race ? 8 : 0 }}>📍 {n.location}</span>}
-                      {n.faction && <span style={{ marginLeft: 8 }}>⚔ {n.faction}</span>}
+                      {facName && (
+                        <span style={{ marginLeft: 8 }}>
+                          {facColor && <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: facColor, marginRight: 4, verticalAlign: "middle" }} />}
+                          ⚔ {facName}
+                        </span>
+                      )}
                       {connCount > 0 && <span style={{ marginLeft: 8 }}>{connCount} link{connCount !== 1 ? "s" : ""}</span>}
                       {encCount > 0 && <span style={{ marginLeft: 8 }}>{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
                     </div>
@@ -1396,6 +1526,388 @@ function NPCTab({ data, setData, save }) {
                   </div>
                 </div>
                 {(n.appearance || n.distinguishing || n.notes) && <div className="card-preview">{n.appearance || n.distinguishing || n.notes}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── NPC WEB ───
+function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
+  const NODE_R = 30;
+  const SVG_W = 800;
+  const SVG_H = 560;
+  const svgRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const initPositions = (npcList) => {
+    const result = {};
+    const cx = SVG_W / 2, cy = SVG_H / 2;
+    const count = npcList.length;
+    if (count === 0) return result;
+    if (count === 1) { result[npcList[0].id] = { x: cx, y: cy }; return result; }
+    const r = Math.min(cx - NODE_R - 20, cy - NODE_R - 30);
+    npcList.forEach((npc, i) => {
+      const angle = (i / count) * 2 * Math.PI - Math.PI / 2;
+      result[npc.id] = { x: Math.round(cx + r * Math.cos(angle)), y: Math.round(cy + r * Math.sin(angle)) };
+    });
+    return result;
+  };
+
+  // Seed positions for any NPC not yet placed
+  useEffect(() => {
+    setPositions(prev => {
+      const updated = { ...prev };
+      let changed = false;
+      npcs.forEach((npc) => {
+        if (!updated[npc.id]) {
+          if (Object.keys(updated).length === 0) {
+            // First time — lay out all NPCs in a circle
+            const fresh = initPositions(npcs);
+            return fresh;
+          }
+          updated[npc.id] = {
+            x: SVG_W / 2 + (Math.random() - 0.5) * 120,
+            y: SVG_H / 2 + (Math.random() - 0.5) * 120,
+          };
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [npcs.map(n => n.id).join(",")]);
+
+  // Initialise on first mount if positions is empty
+  useEffect(() => {
+    if (npcs.length > 0 && Object.keys(positions).length === 0) {
+      setPositions(initPositions(npcs));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const getSVGPoint = (clientX, clientY) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: ((clientX - rect.left) / rect.width) * SVG_W,
+      y: ((clientY - rect.top) / rect.height) * SVG_H,
+    };
+  };
+
+  const handlePointerDown = (e, id) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { id, moved: false };
+  };
+
+  const handlePointerMove = (e) => {
+    if (!dragRef.current) return;
+    const pt = getSVGPoint(e.clientX, e.clientY);
+    dragRef.current.moved = true;
+    setPositions(prev => ({
+      ...prev,
+      [dragRef.current.id]: {
+        x: Math.max(NODE_R + 4, Math.min(SVG_W - NODE_R - 4, pt.x)),
+        y: Math.max(NODE_R + 18, Math.min(SVG_H - NODE_R - 18, pt.y)),
+      },
+    }));
+  };
+
+  const handlePointerUp = (e, id) => {
+    if (dragRef.current && !dragRef.current.moved) onSelectNpc(id);
+    dragRef.current = null;
+  };
+
+  // Deduplicated edges
+  const edges = [];
+  const edgeKeys = new Set();
+  npcs.forEach(npc => {
+    (npc.connections || []).forEach(conn => {
+      if (!positions[npc.id] || !positions[conn.npcId]) return;
+      const key = [npc.id, conn.npcId].sort().join("--");
+      if (!edgeKeys.has(key)) {
+        edgeKeys.add(key);
+        edges.push({ from: npc.id, to: conn.npcId, label: conn.relationship });
+      }
+    });
+  });
+
+  const attitudeColor = (attitude) => {
+    if (attitude === "Friendly") return "#5a9b5a";
+    if (attitude === "Hostile") return "#c45050";
+    if (attitude === "Neutral") return "#8a7d65";
+    return "#c8a84e";
+  };
+
+  const initials = (name) => {
+    const words = (name || "?").trim().split(/\s+/);
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  };
+
+  if (npcs.length === 0) {
+    return (
+      <div className="empty-state" style={{ marginTop: 20 }}>
+        <div className="icon">🕸</div>
+        <p>No NPCs to show in the web yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <button className="btn btn-sm" onClick={() => setPositions(initPositions(npcs))}>↺ Reset Layout</button>
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+        className="npc-web-svg"
+        onPointerMove={handlePointerMove}
+        onPointerUp={() => { dragRef.current = null; }}
+        onPointerLeave={() => { dragRef.current = null; }}
+      >
+        {/* Edges */}
+        {edges.map((edge, i) => {
+          const from = positions[edge.from];
+          const to = positions[edge.to];
+          if (!from || !to) return null;
+          const dx = to.x - from.x, dy = to.y - from.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const sx = from.x + (dx / len) * (NODE_R + 2);
+          const sy = from.y + (dy / len) * (NODE_R + 2);
+          const ex = to.x - (dx / len) * (NODE_R + 2);
+          const ey = to.y - (dy / len) * (NODE_R + 2);
+          const mx = (from.x + to.x) / 2;
+          const my = (from.y + to.y) / 2;
+          return (
+            <g key={i}>
+              <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#4a3d2a" strokeWidth="1.5" strokeDasharray="5 3" />
+              {edge.label && (
+                <text x={mx} y={my} textAnchor="middle" fontSize="9" fill="#8a7d65" dy="-5" fontFamily="'MedievalSharp', cursive">
+                  {edge.label.length > 22 ? edge.label.slice(0, 20) + "…" : edge.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Nodes */}
+        {npcs.map(npc => {
+          const pos = positions[npc.id];
+          if (!pos) return null;
+          const border = attitudeColor(npc.attitude);
+          const facColor = npc.factionId ? (factions.find(f => f.id === npc.factionId) || {}).color : null;
+          const isDead = npc.status === "Dead";
+          return (
+            <g
+              key={npc.id}
+              transform={`translate(${pos.x},${pos.y})`}
+              onPointerDown={e => handlePointerDown(e, npc.id)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={e => handlePointerUp(e, npc.id)}
+              style={{ cursor: "pointer", userSelect: "none" }}
+              opacity={isDead ? 0.45 : 1}
+            >
+              {facColor && (
+                <circle r={NODE_R + 6} fill="none" stroke={facColor} strokeWidth="3" strokeDasharray="5 3" opacity="0.65" />
+              )}
+              <circle r={NODE_R} fill="#2a2218" stroke={border} strokeWidth="2.5" />
+              <text textAnchor="middle" dy="0.35em" fontSize="13" fill={border} fontWeight="bold"
+                fontFamily="'Cinzel Decorative', cursive" style={{ pointerEvents: "none" }}>
+                {initials(npc.name)}
+              </text>
+              <text textAnchor="middle" y={NODE_R + 14} fontSize="10" fill="#d4c5a0"
+                fontFamily="'MedievalSharp', cursive" style={{ pointerEvents: "none" }}>
+                {npc.name.length > 14 ? npc.name.slice(0, 13) + "…" : npc.name}
+              </text>
+              {npc.status === "Dead" && (
+                <text textAnchor="middle" y={-NODE_R - 6} fontSize="12" fill="#c45050" style={{ pointerEvents: "none" }}>✝</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", textAlign: "center", marginTop: 6 }}>
+        Drag nodes to rearrange · Click to open NPC · Dashed ring = faction
+      </div>
+    </div>
+  );
+}
+
+// ─── FACTION COLOURS ───
+const FACTION_COLORS = [
+  "#c8a84e", "#8b3a3a", "#3a5a7b", "#3a6b3a",
+  "#6b3a7b", "#7b5a3a", "#4a7b7b", "#7b7b3a",
+  "#8a7d65", "#5a3a7b",
+];
+
+// ─── FACTION TAB ───
+function FactionTab({ data, setData, save }) {
+  const [view, setView] = useState("list");
+  const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({});
+  const [confirmDel, setConfirmDel] = useState(null);
+
+  const factions = data.factions || [];
+  const npcs = data.npcs || [];
+
+  const getMembers = (facId) => npcs.filter(n => n.factionId === facId);
+
+  const filtered = factions.filter(f => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (f.name || "").toLowerCase().includes(q) || (f.description || "").toLowerCase().includes(q);
+  }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+  const openNew = () => {
+    setForm({ name: "", description: "", color: FACTION_COLORS[0], notes: "" });
+    setEditId(null);
+    setView("form");
+  };
+
+  const openEdit = (f) => {
+    setForm({ ...f });
+    setEditId(f.id);
+    setView("form");
+  };
+
+  const handleSave = () => {
+    if (editId) {
+      const updated = factions.map(f => f.id === editId ? { ...f, ...form, updatedAt: new Date().toISOString() } : f);
+      const nd = { ...data, factions: updated };
+      setData(nd); save(nd);
+    } else {
+      const id = generateId("fac", data.nextIds.faction || 1);
+      const entry = { ...form, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const nd = { ...data, factions: [...factions, entry], nextIds: { ...data.nextIds, faction: (data.nextIds.faction || 1) + 1 } };
+      setData(nd); save(nd);
+    }
+    setView("list");
+  };
+
+  const handleDelete = (id) => {
+    const updatedNpcs = npcs.map(n => n.factionId === id ? { ...n, factionId: "", faction: n.faction } : n);
+    const nd = { ...data, factions: factions.filter(f => f.id !== id), npcs: updatedNpcs };
+    setData(nd); save(nd);
+    setConfirmDel(null);
+    setView("list");
+  };
+
+  const viewFaction = factions.find(f => f.id === editId);
+
+  if (view === "form") {
+    return (
+      <div className="form-panel">
+        <div className="form-title">{editId ? "Edit Faction" : "New Faction"}</div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input className="form-input" placeholder="Faction name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
+            <label className="form-label">Colour</label>
+            <div className="color-picker-row">
+              {FACTION_COLORS.map(c => (
+                <button key={c} className={`color-swatch-btn ${form.color === c ? "selected" : ""}`} style={{ background: c }} onClick={() => setForm({ ...form, color: c })} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
+            <label className="form-label">Description</label>
+            <input className="form-input" placeholder="Short description..." value={form.description || ""} onChange={e => setForm({ ...form, description: e.target.value })} />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
+            <label className="form-label">Notes</label>
+            <textarea className="form-textarea" placeholder="Goals, history, leadership..." value={form.notes || ""} onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+        </div>
+        <div className="form-actions">
+          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Faction"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "detail" && viewFaction) {
+    const f = viewFaction;
+    const members = getMembers(f.id);
+    return (
+      <div>
+        <BackButton onClick={() => { setView("list"); setEditId(null); }} />
+        <div className="detail-panel">
+          <div className="faction-header-row">
+            <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 28, height: 28 }} />
+            <div className="detail-title">{f.name}</div>
+          </div>
+          {f.description && <div style={{ fontSize: "0.88rem", color: "var(--text)", marginTop: 10 }}>{f.description}</div>}
+          {f.notes && (
+            <div className="detail-section">
+              <div className="detail-section-title">Notes</div>
+              <div className="detail-body">{f.notes}</div>
+            </div>
+          )}
+          <div className="detail-section">
+            <div className="detail-section-title">Members ({members.length})</div>
+            {members.length === 0 ? (
+              <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No NPCs assigned yet. Edit an NPC and select this faction.</div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", marginTop: 4 }}>
+                {members.map(n => <span key={n.id} className="faction-member-tag">{n.name}</span>)}
+              </div>
+            )}
+          </div>
+          <div className="detail-actions">
+            <button className="btn" onClick={() => openEdit(f)}>Edit</button>
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(f.id)}>Delete</button>
+          </div>
+        </div>
+        {confirmDel && <ConfirmDialog message={`Delete "${f.name}"? NPCs will be unlinked.`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="toolbar">
+        <input className="search-input" placeholder="Search factions..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button className="btn btn-primary" onClick={openNew}>+ New Faction</button>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">⚔</div>
+          <p>{search ? "No factions match your search." : "No factions created yet."}</p>
+          {!search && <button className="btn btn-primary" onClick={openNew}>Create First Faction</button>}
+        </div>
+      ) : (
+        <div className="card-list">
+          {filtered.map(f => {
+            const mc = getMembers(f.id).length;
+            return (
+              <div key={f.id} className="card" onClick={() => { setEditId(f.id); setView("detail"); }}>
+                <div className="card-header">
+                  <div className="faction-header-row">
+                    <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 20, height: 20 }} />
+                    <div>
+                      <div className="card-title">{f.name}</div>
+                      {f.description && <div className="card-meta">{f.description}</div>}
+                    </div>
+                  </div>
+                  <span className="badge" style={{ background: "var(--parchment-lighter)", color: "var(--text-dim)" }}>{mc} member{mc !== 1 ? "s" : ""}</span>
+                </div>
               </div>
             );
           })}
@@ -2207,7 +2719,7 @@ function PartyTab({ data, setData, save }) {
       <div className="settings-section">
         <div className="settings-title">Data</div>
         <p style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 12 }}>
-          {data.sessions.length} sessions · {data.npcs.length} NPCs · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
+          {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} factions · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
         </p>
         <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
       </div>
@@ -2244,6 +2756,7 @@ export default function AdventureNotes() {
   const tabs = [
     { key: "sessions", label: "Journal", count: data.sessions.length },
     { key: "npcs", label: "NPCs", count: data.npcs.length },
+    { key: "factions", label: "Factions", count: (data.factions || []).length },
     { key: "quests", label: "Quests", count: data.quests.length },
     { key: "locations", label: "Locations", count: data.locations.length },
     { key: "maps", label: "Maps", count: (data.maps || []).length },
@@ -2267,6 +2780,7 @@ export default function AdventureNotes() {
       </div>
       {tab === "sessions" && <SessionTab data={data} setData={setData} save={doSave} />}
       {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} />}
+      {tab === "factions" && <FactionTab data={data} setData={setData} save={doSave} />}
       {tab === "quests" && <QuestTab data={data} setData={setData} save={doSave} />}
       {tab === "locations" && <LocationTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
       {tab === "maps" && <MapTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
