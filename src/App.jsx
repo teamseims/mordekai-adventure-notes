@@ -4,11 +4,11 @@ import * as d3 from "d3";
 const STORAGE_KEY = "mordekai-notes-v1";
 
 const DEFAULT_PCS = [
-  { id: "pc-1", name: "King Gizzard", role: "Circle of the Stars Druid", notes: "Guided by the Lizard Wizard. Shepherd of Ends, Herald of Beginnings." },
-  { id: "pc-2", name: "Lucien", role: "", notes: "" },
-  { id: "pc-3", name: "Shio", role: "", notes: "" },
-  { id: "pc-4", name: "Kazzak", role: "", notes: "" },
-  { id: "pc-5", name: "Fazula", role: "", notes: "" },
+  { id: "pc-1", name: "King Gizzard", playerName: "", race: "Variant Human", classSubclass: "Circle of the Stars Druid", background: "Guide", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "Guided by the Lizard Wizard. Shepherd of Ends, Herald of Beginnings.", notableItems: "", conditions: "" },
+  { id: "pc-2", name: "Lucien",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-3", name: "Shio",         playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-4", name: "Kazzak",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-5", name: "Fazula",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
 ];
 
 const DEFAULT_DATA = {
@@ -28,12 +28,23 @@ const ATTITUDES = ["Friendly", "Neutral", "Hostile", "Unknown"];
 const MAP_LAYERS = ["Realm", "Region", "Locale"];
 
 // ─── Storage helpers ───
+function migratePCs(pcs) {
+  return (pcs || DEFAULT_PCS).map(p => ({
+    playerName: "", race: "", classSubclass: p.classSubclass || p.role || "",
+    background: "", personality: "", bonds: "", ideals: "", flaws: "",
+    dmNotes: p.dmNotes || p.notes || "", notableItems: "", conditions: "",
+    ...p,
+  }));
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_DATA, ...parsed };
+      const merged = { ...DEFAULT_DATA, ...parsed };
+      merged.pcs = migratePCs(merged.pcs);
+      return merged;
     }
   } catch (e) { /* key doesn't exist yet */ }
   return { ...DEFAULT_DATA };
@@ -2903,14 +2914,18 @@ function MapTab({ data, setData, save, navTarget, setNavTarget }) {
   );
 }
 
-// ─── PARTY TAB (bonus settings-like) ───
+// ─── PARTY TAB ───
 function PartyTab({ data, setData, save }) {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({});
+  const [expanded, setExpanded] = useState({});
 
   const pcs = data.pcs || [];
 
-  const openEdit = (pc) => {
+  const toggleExpand = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+
+  const openEdit = (pc, e) => {
+    e.stopPropagation();
     setForm({ ...pc });
     setEditId(pc.id);
   };
@@ -2929,48 +2944,114 @@ function PartyTab({ data, setData, save }) {
     }
   };
 
+  const tf = (field, rows = 2) => (
+    <textarea className="form-textarea" rows={rows} style={{ minHeight: "unset" }}
+      value={form[field] || ""} onChange={e => setForm({ ...form, [field]: e.target.value })} />
+  );
+
   return (
     <div>
       <div className="settings-section">
         <div className="settings-title">The Party</div>
         <div className="card-list">
-          {pcs.map(pc => (
-            editId === pc.id ? (
-              <div key={pc.id} className="form-panel" style={{ margin: 0 }}>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Name</label>
-                    <input className="form-input" value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+          {pcs.map(pc => {
+            if (editId === pc.id) {
+              return (
+                <div key={pc.id} className="form-panel" style={{ margin: 0 }}>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Name</label>
+                      <input className="form-input" value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Player Name</label>
+                      <input className="form-input" value={form.playerName || ""} onChange={e => setForm({ ...form, playerName: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Role / Class</label>
-                    <input className="form-input" value={form.role || ""} onChange={e => setForm({ ...form, role: e.target.value })} />
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Race / Species</label>
+                      <input className="form-input" value={form.race || ""} onChange={e => setForm({ ...form, race: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Class &amp; Subclass</label>
+                      <input className="form-input" value={form.classSubclass || ""} onChange={e => setForm({ ...form, classSubclass: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Background</label>
+                      <input className="form-input" value={form.background || ""} onChange={e => setForm({ ...form, background: e.target.value })} />
+                    </div>
+                    <div className="form-group" />
+                  </div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Personality Traits</label>{tf("personality")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Bonds / Motivations</label>{tf("bonds")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Ideals</label>{tf("ideals")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Flaws / Secrets</label>{tf("flaws")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Notable Items</label>{tf("notableItems")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Conditions / Status</label>{tf("conditions")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">DM Notes</label>{tf("dmNotes", 4)}</div></div>
+                  <div className="form-actions">
+                    <button className="btn" onClick={() => setEditId(null)}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleSave}>Save</button>
                   </div>
                 </div>
-                <div className="form-row">
-                  <div className="form-group full">
-                    <label className="form-label">Notes</label>
-                    <textarea className="form-textarea" style={{ minHeight: 50 }} value={form.notes || ""} onChange={e => setForm({ ...form, notes: e.target.value })} />
-                  </div>
-                </div>
-                <div className="form-actions">
-                  <button className="btn btn-sm" onClick={() => setEditId(null)}>Cancel</button>
-                  <button className="btn btn-primary btn-sm" onClick={handleSave}>Save</button>
-                </div>
-              </div>
-            ) : (
-              <div key={pc.id} className="card" onClick={() => openEdit(pc)}>
+              );
+            }
+
+            const classSubclass = pc.classSubclass || pc.role || "";
+            const dmNotes = pc.dmNotes || pc.notes || "";
+            const identity = [pc.race, classSubclass].filter(Boolean).join(" · ");
+            const hasPersonality = pc.personality || pc.bonds || pc.ideals || pc.flaws;
+            const hasCampaign = pc.notableItems || pc.conditions || dmNotes;
+            const isExpanded = !!expanded[pc.id];
+
+            return (
+              <div key={pc.id} className="card" style={{ cursor: "pointer" }} onClick={() => toggleExpand(pc.id)}>
                 <div className="card-header">
-                  <div>
-                    <div className="card-title">{pc.name}</div>
-                    {pc.role && <div className="card-meta">{pc.role}</div>}
+                  <div style={{ flex: 1 }}>
+                    <div className="card-title" style={{ fontFamily: "'Cinzel Decorative', serif", color: "var(--gold)" }}>{pc.name}</div>
+                    {identity && <div className="card-meta">{identity}</div>}
+                    {pc.playerName && <div className="card-meta">Player: {pc.playerName}</div>}
                   </div>
-                  <span className="tag pc-tag">PC</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button className="btn btn-sm" onClick={e => openEdit(pc, e)}>Edit</button>
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
+                  </div>
                 </div>
-                {pc.notes && <div className="card-preview">{pc.notes}</div>}
+
+                {isExpanded && (
+                  <div style={{ paddingTop: 4 }}>
+                    <div className="detail-section">
+                      <div className="detail-section-title">Identity</div>
+                      {pc.race && <div className="npc-detail-field"><span className="field-label">Race</span><span className="field-value">{pc.race}</span></div>}
+                      {classSubclass && <div className="npc-detail-field"><span className="field-label">Class</span><span className="field-value">{classSubclass}</span></div>}
+                      {pc.background && <div className="npc-detail-field"><span className="field-label">Background</span><span className="field-value">{pc.background}</span></div>}
+                      {pc.playerName && <div className="npc-detail-field"><span className="field-label">Player</span><span className="field-value">{pc.playerName}</span></div>}
+                    </div>
+                    {hasPersonality && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Personality</div>
+                        {pc.personality && <div className="npc-detail-field"><span className="field-label">Traits</span><span className="field-value">{pc.personality}</span></div>}
+                        {pc.bonds && <div className="npc-detail-field"><span className="field-label">Bonds</span><span className="field-value">{pc.bonds}</span></div>}
+                        {pc.ideals && <div className="npc-detail-field"><span className="field-label">Ideals</span><span className="field-value">{pc.ideals}</span></div>}
+                        {pc.flaws && <div className="npc-detail-field"><span className="field-label">Flaws</span><span className="field-value">{pc.flaws}</span></div>}
+                      </div>
+                    )}
+                    {hasCampaign && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Campaign</div>
+                        {pc.notableItems && <div className="npc-detail-field"><span className="field-label">Items</span><span className="field-value">{pc.notableItems}</span></div>}
+                        {pc.conditions && <div className="npc-detail-field"><span className="field-label">Conditions</span><span className="field-value">{pc.conditions}</span></div>}
+                        {dmNotes && <div className="npc-detail-field"><span className="field-label">DM Notes</span><span className="field-value" style={{ whiteSpace: "pre-wrap" }}>{dmNotes}</span></div>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )
-          ))}
+            );
+          })}
         </div>
       </div>
 
