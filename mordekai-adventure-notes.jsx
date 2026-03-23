@@ -15,13 +15,15 @@ const DEFAULT_DATA = {
   npcs: [],
   quests: [],
   locations: [],
+  maps: [],
   pcs: DEFAULT_PCS,
-  nextIds: { session: 1, npc: 1, quest: 1, location: 1 },
+  nextIds: { session: 1, npc: 1, quest: 1, location: 1, map: 1 },
 };
 
 const NPC_STATUSES = ["Alive", "Dead", "Unknown", "Missing"];
 const QUEST_STATUSES = ["Active", "Completed", "Dormant", "Failed"];
 const ATTITUDES = ["Friendly", "Neutral", "Hostile", "Unknown"];
+const MAP_LAYERS = ["Realm", "Region", "Locale"];
 
 // ─── Storage helpers ───
 async function loadData() {
@@ -712,6 +714,110 @@ body, html {
   .toolbar { flex-direction: column; }
   .search-input { min-width: 100%; }
 }
+
+/* ─── Maps ─── */
+.map-container {
+  position: relative;
+  width: 100%;
+  cursor: crosshair;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.map-container img {
+  width: 100%;
+  display: block;
+}
+
+.map-pin {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  cursor: pointer;
+  z-index: 2;
+  transition: transform 0.1s;
+}
+
+.map-pin:hover {
+  transform: translate(-50%, -100%) scale(1.2);
+  z-index: 3;
+}
+
+.map-pin-icon {
+  width: 20px;
+  height: 28px;
+}
+
+.pin-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--parchment-light);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  z-index: 10;
+  font-size: 0.82rem;
+  box-shadow: 0 4px 12px var(--shadow);
+  margin-bottom: 4px;
+}
+
+.pin-form {
+  background: var(--parchment-light);
+  border: 1px solid var(--gold-dim);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 10px;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+.map-thumb {
+  width: 80px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.badge-realm { background: #6b3a7b; color: #e0c0f0; }
+.badge-region { background: var(--blue); color: #c0d8f0; }
+.badge-locale { background: var(--green); color: #c0e0c0; }
+
+.image-preview {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  max-height: 200px;
+}
+
+.image-preview img {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  display: block;
+}
+
+.image-error {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.location-map-image {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin: 10px 0;
+}
 `;
 
 // ─────────────────────────────────────────────
@@ -740,6 +846,13 @@ function Badge({ status }) {
 function BackButton({ onClick }) {
   return <button className="back-link" onClick={onClick}>← Back to list</button>;
 }
+
+const PinIcon = ({ color = "var(--gold)" }) => (
+  <svg width="20" height="28" viewBox="0 0 20 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 0C4.48 0 0 4.48 0 10c0 7.5 10 18 10 18s10-10.5 10-18c0-5.52-4.48-10-10-10z" fill={color} stroke="var(--parchment)" strokeWidth="1.5"/>
+    <circle cx="10" cy="10" r="4" fill="var(--parchment)" opacity="0.7"/>
+  </svg>
+);
 
 // ─── SESSION JOURNAL ───
 function SessionTab({ data, setData, save }) {
@@ -1454,13 +1567,28 @@ function QuestTab({ data, setData, save }) {
   );
 }
 
+function LocationMapImage({ url }) {
+  const [error, setError] = useState(false);
+  if (error) return <div className="image-error" style={{ border: "1px solid var(--border)", borderRadius: 6, margin: "10px 0" }}>Could not load map image</div>;
+  return <img className="location-map-image" src={url} alt="Location map" onError={() => setError(true)} />;
+}
+
 // ─── LOCATION TRACKER ───
-function LocationTab({ data, setData, save }) {
+function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
   const [view, setView] = useState("list");
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
+  const [locImgError, setLocImgError] = useState(false);
+
+  useEffect(() => {
+    if (navTarget && navTarget.tab === "locations") {
+      setEditId(navTarget.id);
+      setView("detail");
+      setNavTarget(null);
+    }
+  }, [navTarget]);
 
   const locations = data.locations || [];
 
@@ -1474,7 +1602,7 @@ function LocationTab({ data, setData, save }) {
   }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   const openNew = () => {
-    setForm({ name: "", type: "", region: "", notes: "", visited: false });
+    setForm({ name: "", type: "", region: "", notes: "", visited: false, mapImageUrl: "", parentMapId: "" });
     setEditId(null);
     setView("form");
   };
@@ -1536,6 +1664,21 @@ function LocationTab({ data, setData, save }) {
         </div>
         <div className="form-row">
           <div className="form-group full">
+            <label className="form-label">Map Image URL</label>
+            <input className="form-input" placeholder="Tumblr URL for a map of this location (optional)" value={form.mapImageUrl || ""} onChange={e => { setForm({ ...form, mapImageUrl: e.target.value }); setLocImgError(false); }} />
+            {form.mapImageUrl && (
+              <div className="image-preview">
+                {locImgError ? (
+                  <div className="image-error">Could not load image</div>
+                ) : (
+                  <img src={form.mapImageUrl} alt="Map preview" onError={() => setLocImgError(true)} />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
             <label className="form-label">Notes</label>
             <textarea className="form-textarea" placeholder="Description, notable features, secrets..." value={form.notes || ""} onChange={e => setForm({ ...form, notes: e.target.value })} />
           </div>
@@ -1550,6 +1693,7 @@ function LocationTab({ data, setData, save }) {
 
   if (view === "detail" && viewLoc) {
     const l = viewLoc;
+    const parentMap = l.parentMapId ? (data.maps || []).find(m => m.id === l.parentMapId) : null;
     return (
       <div>
         <BackButton onClick={() => { setView("list"); setEditId(null); }} />
@@ -1561,7 +1705,15 @@ function LocationTab({ data, setData, save }) {
           <div className="detail-meta" style={{ marginTop: 6 }}>
             {l.type && <span>{l.type}</span>}
             {l.region && <span>📍 {l.region}</span>}
+            {parentMap && (
+              <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
+                View on Map →
+              </button>
+            )}
           </div>
+          {l.mapImageUrl && (
+            <LocationMapImage url={l.mapImageUrl} />
+          )}
           {l.notes && <div className="detail-body">{l.notes}</div>}
           <div className="detail-actions">
             <button className="btn" onClick={() => openEdit(l)}>Edit</button>
@@ -1602,6 +1754,379 @@ function LocationTab({ data, setData, save }) {
               {l.notes && <div className="card-preview">{l.notes}</div>}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MAP TAB ───
+function MapTab({ data, setData, save, navTarget, setNavTarget }) {
+  const [view, setView] = useState("list");
+  const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [layerFilter, setLayerFilter] = useState("All");
+  const [form, setForm] = useState({});
+  const [formImgError, setFormImgError] = useState(false);
+  const [mapImgError, setMapImgError] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [hoveredPin, setHoveredPin] = useState(null);
+  const [pendingPin, setPendingPin] = useState(null);
+  const [pinForm, setPinForm] = useState({ label: "", createLocation: true, createMap: false, existingLocId: "" });
+  const imgRef = useRef(null);
+
+  const maps = data.maps || [];
+
+  useEffect(() => {
+    if (navTarget && navTarget.tab === "maps") {
+      setEditId(navTarget.id);
+      setView("detail");
+      setNavTarget(null);
+    }
+  }, [navTarget]);
+
+  // Reset image error when form imageUrl changes
+  useEffect(() => { setFormImgError(false); }, [form.imageUrl]);
+
+  const layerOrder = { Realm: 0, Region: 1, Locale: 2 };
+
+  const filtered = maps.filter(m => {
+    if (layerFilter !== "All" && m.layer !== layerFilter) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (m.name || "").toLowerCase().includes(q) || (m.notes || "").toLowerCase().includes(q);
+  }).sort((a, b) => {
+    const lo = (layerOrder[a.layer] ?? 9) - (layerOrder[b.layer] ?? 9);
+    if (lo !== 0) return lo;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+
+  const openNew = () => {
+    setForm({ name: "", layer: "Realm", imageUrl: "", notes: "", parentMapId: null });
+    setEditId(null);
+    setFormImgError(false);
+    setView("form");
+  };
+
+  const openEdit = (m) => {
+    setForm({ ...m });
+    setEditId(m.id);
+    setFormImgError(false);
+    setView("form");
+  };
+
+  const handleSave = () => {
+    if (editId) {
+      const updated = maps.map(m => m.id === editId ? { ...m, ...form, updatedAt: new Date().toISOString() } : m);
+      const nd = { ...data, maps: updated };
+      setData(nd); save(nd);
+    } else {
+      const id = generateId("map", data.nextIds.map);
+      const entry = { ...form, id, pins: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const nd = { ...data, maps: [...maps, entry], nextIds: { ...data.nextIds, map: data.nextIds.map + 1 } };
+      setData(nd); save(nd);
+    }
+    setView("list");
+  };
+
+  const handleDelete = (id) => {
+    const nd = { ...data, maps: maps.filter(m => m.id !== id) };
+    setData(nd); save(nd);
+    setConfirmDel(null);
+    setView("list");
+  };
+
+  const handleMapClick = (e) => {
+    const img = imgRef.current;
+    if (!img) return;
+    const rect = img.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setPendingPin({ x, y });
+    setPinForm({ label: "", createLocation: true, createMap: false, existingLocId: "" });
+    setHoveredPin(null);
+  };
+
+  const confirmPin = () => {
+    if (!pinForm.label.trim()) return;
+    const currentMap = maps.find(m => m.id === editId);
+    if (!currentMap || !pendingPin) return;
+
+    let newLocId = null;
+    let newMapId = null;
+    let updatedData = { ...data };
+
+    if (pinForm.existingLocId) {
+      newLocId = pinForm.existingLocId;
+    } else if (pinForm.createLocation) {
+      const locId = generateId("loc", updatedData.nextIds.location);
+      const newLoc = {
+        id: locId,
+        name: pinForm.label.trim(),
+        type: currentMap.layer || "",
+        region: "",
+        notes: "",
+        visited: false,
+        mapImageUrl: "",
+        parentMapId: currentMap.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      updatedData = {
+        ...updatedData,
+        locations: [...updatedData.locations, newLoc],
+        nextIds: { ...updatedData.nextIds, location: updatedData.nextIds.location + 1 },
+      };
+      newLocId = locId;
+    }
+
+    if (pinForm.createMap) {
+      const layerIdx = MAP_LAYERS.indexOf(currentMap.layer);
+      const childLayer = layerIdx >= 0 && layerIdx < MAP_LAYERS.length - 1 ? MAP_LAYERS[layerIdx + 1] : MAP_LAYERS[MAP_LAYERS.length - 1];
+      const childMapId = generateId("map", updatedData.nextIds.map);
+      const childMap = {
+        id: childMapId,
+        name: pinForm.label.trim(),
+        layer: childLayer,
+        imageUrl: "",
+        notes: "",
+        pins: [],
+        parentMapId: currentMap.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      updatedData = {
+        ...updatedData,
+        maps: [...updatedData.maps, childMap],
+        nextIds: { ...updatedData.nextIds, map: updatedData.nextIds.map + 1 },
+      };
+      newMapId = childMapId;
+    }
+
+    const pinId = `pin-${Date.now()}`;
+    const newPin = { id: pinId, x: pendingPin.x, y: pendingPin.y, label: pinForm.label.trim() };
+    if (newLocId) newPin.locationId = newLocId;
+    if (newMapId) newPin.childMapId = newMapId;
+
+    const updatedMaps = updatedData.maps.map(m => {
+      if (m.id !== currentMap.id) return m;
+      return { ...m, pins: [...(m.pins || []), newPin], updatedAt: new Date().toISOString() };
+    });
+
+    updatedData = { ...updatedData, maps: updatedMaps };
+    setData(updatedData);
+    save(updatedData);
+    setPendingPin(null);
+  };
+
+  const removePin = (pinId) => {
+    const updatedMaps = maps.map(m => {
+      if (m.id !== editId) return m;
+      return { ...m, pins: (m.pins || []).filter(p => p.id !== pinId), updatedAt: new Date().toISOString() };
+    });
+    const nd = { ...data, maps: updatedMaps };
+    setData(nd); save(nd);
+  };
+
+  const viewMap = maps.find(m => m.id === editId);
+
+  if (view === "form") {
+    return (
+      <div className="form-panel">
+        <div className="form-title">{editId ? "Edit Map" : "New Map"}</div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input className="form-input" placeholder="Map name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="form-group" style={{ maxWidth: 140 }}>
+            <label className="form-label">Layer</label>
+            <select className="form-select" value={form.layer || "Realm"} onChange={e => setForm({ ...form, layer: e.target.value })}>
+              {MAP_LAYERS.map(l => <option key={l}>{l}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
+            <label className="form-label">Image URL</label>
+            <input className="form-input" placeholder="Paste Tumblr image URL..." value={form.imageUrl || ""} onChange={e => setForm({ ...form, imageUrl: e.target.value })} />
+            {form.imageUrl && (
+              <div className="image-preview">
+                {formImgError ? (
+                  <div className="image-error">Could not load image</div>
+                ) : (
+                  <img src={form.imageUrl} alt="Map preview" onError={() => setFormImgError(true)} />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group full">
+            <label className="form-label">Notes</label>
+            <textarea className="form-textarea" placeholder="Notes about this map..." value={form.notes || ""} onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+        </div>
+        <div className="form-actions">
+          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Create Map"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "detail" && viewMap) {
+    const m = viewMap;
+    const pins = m.pins || [];
+    const parentMap = m.parentMapId ? maps.find(pm => pm.id === m.parentMapId) : null;
+    const locations = data.locations || [];
+
+    return (
+      <div>
+        <BackButton onClick={() => { setView("list"); setEditId(null); setPendingPin(null); setHoveredPin(null); }} />
+        {parentMap && (
+          <button className="back-link" style={{ marginBottom: 6 }} onClick={() => { setEditId(parentMap.id); setMapImgError(false); setPendingPin(null); setHoveredPin(null); }}>
+            ↑ Back to {parentMap.name}
+          </button>
+        )}
+        <div className="detail-panel">
+          <div className="card-header">
+            <div className="detail-title">{m.name}</div>
+            <span className={`badge badge-${(m.layer || "realm").toLowerCase()}`}>{m.layer}</span>
+          </div>
+          {m.notes && <div className="detail-body" style={{ marginTop: 8 }}>{m.notes}</div>}
+
+          {m.imageUrl ? (
+            mapImgError ? (
+              <div className="image-error" style={{ border: "1px solid var(--border)", borderRadius: 6, margin: "12px 0" }}>Could not load map image</div>
+            ) : (
+              <div className="map-container" onClick={handleMapClick}>
+                <img ref={imgRef} src={m.imageUrl} alt={m.name} onError={() => setMapImgError(true)} />
+                {pins.map(pin => (
+                  <div
+                    key={pin.id}
+                    className="map-pin"
+                    style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+                    onClick={e => { e.stopPropagation(); setHoveredPin(hoveredPin === pin.id ? null : pin.id); setPendingPin(null); }}
+                    onMouseEnter={() => setHoveredPin(pin.id)}
+                    onMouseLeave={() => setHoveredPin(null)}
+                  >
+                    <div className="map-pin-icon"><PinIcon /></div>
+                    {hoveredPin === pin.id && (
+                      <div className="pin-tooltip" onClick={e => e.stopPropagation()}>
+                        <div style={{ fontFamily: "'Cinzel Decorative', cursive", color: "var(--gold)", fontSize: "0.8rem", marginBottom: 4 }}>{pin.label}</div>
+                        {pin.locationId && (
+                          <div>
+                            <button className="back-link" style={{ marginBottom: 2 }} onClick={e => { e.stopPropagation(); setNavTarget && setNavTarget({ tab: "locations", id: pin.locationId }); }}>
+                              → View Location
+                            </button>
+                          </div>
+                        )}
+                        {pin.childMapId && (
+                          <div>
+                            <button className="back-link" style={{ marginBottom: 2 }} onClick={e => { e.stopPropagation(); setEditId(pin.childMapId); setMapImgError(false); setPendingPin(null); setHoveredPin(null); }}>
+                              → Open Map
+                            </button>
+                          </div>
+                        )}
+                        <button style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.75rem", marginTop: 4 }} onClick={e => { e.stopPropagation(); removePin(pin.id); setHoveredPin(null); }}>✕ Remove pin</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="empty-state" style={{ padding: "20px", border: "1px dashed var(--border)", borderRadius: 6, margin: "12px 0" }}>
+              <p style={{ marginBottom: 0 }}>No image URL set. Edit this map to add one.</p>
+            </div>
+          )}
+
+          {pendingPin && (
+            <div className="pin-form">
+              <div style={{ fontFamily: "'Cinzel Decorative', cursive", color: "var(--gold)", fontSize: "0.85rem", marginBottom: 10 }}>Drop Pin Here</div>
+              <div className="form-row">
+                <div className="form-group full">
+                  <label className="form-label">Label (required)</label>
+                  <input className="form-input" placeholder="Pin label..." value={pinForm.label} onChange={e => setPinForm({ ...pinForm, label: e.target.value })} autoFocus />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group full">
+                  <label className="form-label">Link to Existing Location</label>
+                  <select className="form-select" value={pinForm.existingLocId} onChange={e => setPinForm({ ...pinForm, existingLocId: e.target.value, createLocation: !e.target.value })}>
+                    <option value="">— Create new location —</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {!pinForm.existingLocId && (
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input type="checkbox" checked={pinForm.createLocation} onChange={e => setPinForm({ ...pinForm, createLocation: e.target.checked })} />
+                    Create Location
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input type="checkbox" checked={pinForm.createMap} onChange={e => setPinForm({ ...pinForm, createMap: e.target.checked })} />
+                    Also create a child map
+                  </label>
+                </div>
+              )}
+              <div className="form-actions" style={{ marginTop: 8 }}>
+                <button className="btn btn-sm" onClick={() => setPendingPin(null)}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={confirmPin}>Confirm Pin</button>
+              </div>
+            </div>
+          )}
+
+          <div className="detail-actions">
+            <button className="btn" onClick={() => openEdit(m)}>Edit</button>
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(m.id)}>Delete</button>
+          </div>
+        </div>
+        {confirmDel && <ConfirmDialog message={`Delete map "${m.name}"?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="toolbar">
+        <input className="search-input" placeholder="Search maps..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button className="btn btn-primary" onClick={openNew}>+ New Map</button>
+      </div>
+      <div className="filter-row">
+        {["All", ...MAP_LAYERS].map(l => (
+          <button key={l} className={`filter-pill ${layerFilter === l ? "active" : ""}`} onClick={() => setLayerFilter(l)}>{l}</button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">🗺</div>
+          <p>{search || layerFilter !== "All" ? "No maps match your filters." : "No maps created yet."}</p>
+          {!search && layerFilter === "All" && <button className="btn btn-primary" onClick={openNew}>Create First Map</button>}
+        </div>
+      ) : (
+        <div className="card-list">
+          {filtered.map(m => {
+            const parentMap = m.parentMapId ? maps.find(pm => pm.id === m.parentMapId) : null;
+            const pinCount = (m.pins || []).length;
+            return (
+              <div key={m.id} className="card" onClick={() => { setEditId(m.id); setMapImgError(false); setPendingPin(null); setHoveredPin(null); setView("detail"); }}>
+                <div className="card-header">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="card-title">{m.name}</div>
+                    <div className="card-meta">
+                      <span className={`badge badge-${(m.layer || "realm").toLowerCase()}`}>{m.layer}</span>
+                      <span style={{ marginLeft: 8 }}>{pinCount} pin{pinCount !== 1 ? "s" : ""}</span>
+                      {parentMap && <span style={{ marginLeft: 8 }}>↑ {parentMap.name}</span>}
+                    </div>
+                  </div>
+                  {m.imageUrl && <img className="map-thumb" src={m.imageUrl} alt={m.name} onError={e => e.target.style.display = "none"} />}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1682,7 +2207,7 @@ function PartyTab({ data, setData, save }) {
       <div className="settings-section">
         <div className="settings-title">Data</div>
         <p style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 12 }}>
-          {data.sessions.length} sessions · {data.npcs.length} NPCs · {data.quests.length} quests · {data.locations.length} locations
+          {data.sessions.length} sessions · {data.npcs.length} NPCs · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
         </p>
         <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
       </div>
@@ -1695,6 +2220,7 @@ export default function AdventureNotes() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("sessions");
   const [loaded, setLoaded] = useState(false);
+  const [navTarget, setNavTarget] = useState(null);
 
   useEffect(() => {
     loadData().then(d => {
@@ -1702,6 +2228,13 @@ export default function AdventureNotes() {
       setLoaded(true);
     });
   }, []);
+
+  // When navTarget is set, switch to its tab
+  useEffect(() => {
+    if (navTarget) {
+      setTab(navTarget.tab);
+    }
+  }, [navTarget]);
 
   const doSave = useCallback((d) => saveData(d), []);
 
@@ -1714,6 +2247,7 @@ export default function AdventureNotes() {
     { key: "npcs", label: "NPCs", count: data.npcs.length },
     { key: "quests", label: "Quests", count: data.quests.length },
     { key: "locations", label: "Locations", count: data.locations.length },
+    { key: "maps", label: "Maps", count: (data.maps || []).length },
     { key: "party", label: "Party", count: null },
   ];
 
@@ -1735,7 +2269,8 @@ export default function AdventureNotes() {
       {tab === "sessions" && <SessionTab data={data} setData={setData} save={doSave} />}
       {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} />}
       {tab === "quests" && <QuestTab data={data} setData={setData} save={doSave} />}
-      {tab === "locations" && <LocationTab data={data} setData={setData} save={doSave} />}
+      {tab === "locations" && <LocationTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
+      {tab === "maps" && <MapTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
       {tab === "party" && <PartyTab data={data} setData={setData} save={doSave} />}
     </div>
   );
