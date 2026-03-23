@@ -3048,7 +3048,6 @@ export default function AdventureNotes() {
         {tabs.map(t => (
           <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
             {t.label}
-            {t.count !== null && <span className="tab-count">{t.count}</span>}
           </button>
         ))}
       </div>
