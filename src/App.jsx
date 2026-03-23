@@ -661,6 +661,20 @@ body, html {
   color: var(--text-bright);
 }
 
+.npc-detail-field .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--gold);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.npc-detail-field .link-btn:hover {
+  color: var(--gold-dim);
+}
+
 /* ─── Confirm dialog ─── */
 .confirm-overlay {
   position: fixed;
@@ -1266,7 +1280,7 @@ function SessionTab({ data, setData, save }) {
 }
 
 // ─── NPC REGISTRY ───
-function NPCTab({ data, setData, save }) {
+function NPCTab({ data, setData, save, setNavTarget }) {
   const [view, setView] = useState("list");
   const [displayMode, setDisplayMode] = useState("list"); // "list" | "web"
   const [editId, setEditId] = useState(null);
@@ -1417,7 +1431,7 @@ function NPCTab({ data, setData, save }) {
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Faction / Affiliation</label>
+            <label className="form-label">Organisation / Affiliation</label>
             {(data.factions || []).length > 0 ? (
               <>
                 <select className="form-select" value={form.factionId || ""} onChange={e => {
@@ -1428,11 +1442,11 @@ function NPCTab({ data, setData, save }) {
                   {(data.factions || []).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
                 {!form.factionId && (
-                  <input className="form-input" placeholder="Custom faction / group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} style={{ marginTop: 4 }} />
+                  <input className="form-input" placeholder="Custom organisation / group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} style={{ marginTop: 4 }} />
                 )}
               </>
             ) : (
-              <input className="form-input" placeholder="Faction or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
+              <input className="form-input" placeholder="Organisation or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
             )}
           </div>
         </div>
@@ -1508,13 +1522,14 @@ function NPCTab({ data, setData, save }) {
     const n = viewNPC;
     const encounters = n.encounters || [];
     const conns = Array.isArray(n.connections) ? n.connections : [];
+    const matchedLoc = n.location ? (data.locations || []).find(l => l.name && l.name.toLowerCase() === n.location.toLowerCase()) : null;
     const detailFields = [
       { label: "Race", value: n.race },
       { label: "Appearance", value: n.appearance },
       { label: "Features", value: n.distinguishing || n.voiceMannerism },
       { label: "Belongings", value: n.belongings },
-      { label: "Location", value: n.location },
-      { label: "Faction", value: n.faction },
+      { label: "Location", value: n.location, action: matchedLoc ? () => setNavTarget({ tab: "locations", id: matchedLoc.id }) : null },
+      { label: "Organisation", value: n.faction },
     ].filter(f => f.value);
 
     return (
@@ -1534,7 +1549,11 @@ function NPCTab({ data, setData, save }) {
               {detailFields.map(f => (
                 <div key={f.label} className="npc-detail-field">
                   <span className="field-label">{f.label}</span>
-                  <span className="field-value">{f.value}</span>
+                  {f.action ? (
+                    <button className="field-value link-btn" onClick={f.action}>{f.value}</button>
+                  ) : (
+                    <span className="field-value">{f.value}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -2044,11 +2063,11 @@ function FactionTab({ data, setData, save }) {
   if (view === "form") {
     return (
       <div className="form-panel">
-        <div className="form-title">{editId ? "Edit Faction" : "New Faction"}</div>
+        <div className="form-title">{editId ? "Edit Organisation" : "New Organisation"}</div>
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Name</label>
-            <input className="form-input" placeholder="Faction name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <input className="form-input" placeholder="Organisation name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
           </div>
         </div>
         <div className="form-row">
@@ -2075,7 +2094,7 @@ function FactionTab({ data, setData, save }) {
         </div>
         <div className="form-actions">
           <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Faction"}</button>
+          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Organisation"}</button>
         </div>
       </div>
     );
@@ -2122,14 +2141,14 @@ function FactionTab({ data, setData, save }) {
   return (
     <div>
       <div className="toolbar">
-        <input className="search-input" placeholder="Search factions..." value={search} onChange={e => setSearch(e.target.value)} />
-        <button className="btn btn-primary" onClick={openNew}>+ New Faction</button>
+        <input className="search-input" placeholder="Search organisations..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button className="btn btn-primary" onClick={openNew}>+ New Organisation</button>
       </div>
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="icon">⚔</div>
-          <p>{search ? "No factions match your search." : "No factions created yet."}</p>
-          {!search && <button className="btn btn-primary" onClick={openNew}>Create First Faction</button>}
+          <p>{search ? "No organisations match your search." : "No organisations created yet."}</p>
+          {!search && <button className="btn btn-primary" onClick={openNew}>Create First Organisation</button>}
         </div>
       ) : (
         <div className="card-list">
@@ -2958,7 +2977,7 @@ function PartyTab({ data, setData, save }) {
       <div className="settings-section">
         <div className="settings-title">Data</div>
         <p style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 12 }}>
-          {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} factions · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
+          {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} organisations · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
         </p>
         <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
       </div>
@@ -2995,7 +3014,7 @@ export default function AdventureNotes() {
   const tabs = [
     { key: "sessions", label: "Journal", count: data.sessions.length },
     { key: "npcs", label: "NPCs", count: data.npcs.length },
-    { key: "factions", label: "Factions", count: (data.factions || []).length },
+    { key: "factions", label: "Organisations", count: (data.factions || []).length },
     { key: "quests", label: "Quests", count: data.quests.length },
     { key: "locations", label: "Locations", count: data.locations.length },
     { key: "maps", label: "Maps", count: (data.maps || []).length },
@@ -3018,7 +3037,7 @@ export default function AdventureNotes() {
         ))}
       </div>
       {tab === "sessions" && <SessionTab data={data} setData={setData} save={doSave} />}
-      {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} />}
+      {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} setNavTarget={setNavTarget} />}
       {tab === "factions" && <FactionTab data={data} setData={setData} save={doSave} />}
       {tab === "quests" && <QuestTab data={data} setData={setData} save={doSave} />}
       {tab === "locations" && <LocationTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
