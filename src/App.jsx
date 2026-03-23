@@ -2465,15 +2465,11 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
                 {!isExpanded && l.notes && <div className="card-preview">{l.notes}</div>}
                 {isExpanded && (
                   <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                    {(l.type || l.region || parentMap) && (
+                    {parentMap && (
                       <div className="detail-meta" style={{ marginBottom: 8 }}>
-                        {l.type && <span>{l.type}</span>}
-                        {l.region && <span>📍 {l.region}</span>}
-                        {parentMap && (
-                          <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
-                            View on Map →
-                          </button>
-                        )}
+                        <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
+                          View on Map →
+                        </button>
                       </div>
                     )}
                     {l.mapImageUrl && <LocationMapImage url={l.mapImageUrl} />}
