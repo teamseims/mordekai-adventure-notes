@@ -1984,7 +1984,10 @@ function NPCGraph({ npcs, factions, onNodeClick }) {
 const FACTION_COLORS = [
   "#c8a84e", "#8b3a3a", "#3a5a7b", "#3a6b3a",
   "#6b3a7b", "#7b5a3a", "#4a7b7b", "#7b7b3a",
-  "#8a7d65", "#5a3a7b",
+  "#8a7d65", "#5a3a7b", "#b05a2a", "#2a6b5a",
+  "#7b2a4a", "#2a4a7b", "#6b6b2a", "#4a2a6b",
+  "#9a4a4a", "#2a7b7b", "#7b4a6b", "#4a6b4a",
+  "#1a1a1a", "#3a3a3a", "#5a5a5a", "#ffffff",
 ];
 
 // ─── FACTION TAB ───
