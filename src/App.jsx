@@ -846,12 +846,12 @@ body, html {
 /* ─── NPC Web ─── */
 .npc-web-svg {
   width: 100%;
-  background: var(--parchment-light);
   border-radius: 8px;
   border: 1px solid var(--border);
   display: block;
   touch-action: none;
   user-select: none;
+  overflow: visible;
 }
 
 /* ─── Factions ─── */
@@ -1537,159 +1537,189 @@ function NPCTab({ data, setData, save }) {
 
 // ─── NPC WEB ───
 function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
-  const NODE_R = 30;
-  const SVG_W = 800;
-  const SVG_H = 560;
+  const SVG_W = 900;
+  const SVG_H = 580;
   const svgRef = useRef(null);
   const dragRef = useRef(null);
 
-  const initPositions = (npcList) => {
-    const result = {};
-    const cx = SVG_W / 2, cy = SVG_H / 2;
-    const count = npcList.length;
-    if (count === 0) return result;
-    if (count === 1) { result[npcList[0].id] = { x: cx, y: cy }; return result; }
-    const r = Math.min(cx - NODE_R - 20, cy - NODE_R - 30);
-    npcList.forEach((npc, i) => {
-      const angle = (i / count) * 2 * Math.PI - Math.PI / 2;
-      result[npc.id] = { x: Math.round(cx + r * Math.cos(angle)), y: Math.round(cy + r * Math.sin(angle)) };
+  // Connection degree per NPC — drives node radius
+  const degree = {};
+  npcs.forEach(n => { degree[n.id] = 0; });
+  npcs.forEach(n => {
+    (n.connections || []).forEach(c => {
+      degree[n.id] = (degree[n.id] || 0) + 1;
+      if (degree[c.npcId] !== undefined) degree[c.npcId]++;
     });
-    return result;
+  });
+  const nodeR = (id) => Math.max(14, Math.min(36, 14 + (degree[id] || 0) * 3.5));
+
+  // Visual helpers
+  const getFac = (n) => n.factionId ? factions.find(f => f.id === n.factionId) || null : null;
+  const nodeFill = (n) => { const f = getFac(n); return f ? f.color : "#1a1510"; };
+  const nodeStroke = (n) => {
+    const f = getFac(n);
+    if (f) return f.color;
+    if (n.attitude === "Friendly") return "#5a9b5a";
+    if (n.attitude === "Hostile") return "#c45050";
+    if (n.attitude === "Neutral") return "#6a6055";
+    return "#c8a84e";
+  };
+  const textCol = (fill) => {
+    if (!fill || fill === "#1a1510") return "#c8a84e";
+    const r = parseInt(fill.slice(1, 3), 16);
+    const g = parseInt(fill.slice(3, 5), 16);
+    const b = parseInt(fill.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.45 ? "#1a1510" : "#f5edd8";
+  };
+  const initials = (name) => {
+    const w = (name || "?").trim().split(/\s+/);
+    return w.length === 1 ? w[0].slice(0, 2).toUpperCase() : (w[0][0] + w[w.length - 1][0]).toUpperCase();
   };
 
-  // Seed positions for any NPC not yet placed
-  useEffect(() => {
-    setPositions(prev => {
-      const updated = { ...prev };
-      let changed = false;
-      npcs.forEach((npc) => {
-        if (!updated[npc.id]) {
-          if (Object.keys(updated).length === 0) {
-            // First time — lay out all NPCs in a circle
-            const fresh = initPositions(npcs);
-            return fresh;
-          }
-          updated[npc.id] = {
-            x: SVG_W / 2 + (Math.random() - 0.5) * 120,
-            y: SVG_H / 2 + (Math.random() - 0.5) * 120,
-          };
-          changed = true;
-        }
-      });
-      return changed ? updated : prev;
+  // Fruchterman-Reingold force layout
+  const runLayout = (npcList) => {
+    if (npcList.length === 0) return {};
+    const pos = {}, vel = {};
+    npcList.forEach((n, i) => {
+      const angle = (i / npcList.length) * 2 * Math.PI;
+      const r = Math.min(SVG_W, SVG_H) * 0.28 + (Math.random() - 0.5) * 40;
+      pos[n.id] = { x: SVG_W / 2 + r * Math.cos(angle), y: SVG_H / 2 + r * Math.sin(angle) };
+      vel[n.id] = { x: 0, y: 0 };
     });
+    const edgeSet = [];
+    const seen = new Set();
+    npcList.forEach(n => {
+      (n.connections || []).forEach(c => {
+        const key = [n.id, c.npcId].sort().join("|");
+        if (!seen.has(key) && pos[c.npcId] !== undefined) { seen.add(key); edgeSet.push([n.id, c.npcId]); }
+      });
+    });
+    const k = Math.sqrt((SVG_W * SVG_H) / Math.max(npcList.length, 1)) * 0.78;
+    const ITERS = 300;
+    for (let iter = 0; iter < ITERS; iter++) {
+      const cool = Math.pow(1 - iter / ITERS, 1.2);
+      const fx = {}, fy = {};
+      npcList.forEach(n => { fx[n.id] = 0; fy[n.id] = 0; });
+      // Repulsion between every pair
+      for (let i = 0; i < npcList.length; i++) {
+        for (let j = i + 1; j < npcList.length; j++) {
+          const u = npcList[i].id, v = npcList[j].id;
+          const dx = pos[u].x - pos[v].x, dy = pos[u].y - pos[v].y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          const rep = (k * k) / d;
+          fx[u] += (dx / d) * rep; fy[u] += (dy / d) * rep;
+          fx[v] -= (dx / d) * rep; fy[v] -= (dy / d) * rep;
+        }
+      }
+      // Attraction along edges
+      edgeSet.forEach(([u, v]) => {
+        const dx = pos[v].x - pos[u].x, dy = pos[v].y - pos[u].y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const att = (d * d) / k;
+        fx[u] += (dx / d) * att; fy[u] += (dy / d) * att;
+        fx[v] -= (dx / d) * att; fy[v] -= (dy / d) * att;
+      });
+      // Weak gravity toward centre keeps isolated nodes from drifting
+      npcList.forEach(n => {
+        fx[n.id] += (SVG_W / 2 - pos[n.id].x) * 0.006;
+        fy[n.id] += (SVG_H / 2 - pos[n.id].y) * 0.006;
+      });
+      // Apply with cooling + boundary clamp
+      const maxD = Math.max(2, 55 * cool);
+      npcList.forEach(n => {
+        const sp = Math.sqrt(fx[n.id] ** 2 + fy[n.id] ** 2) || 1;
+        const cap = Math.min(sp, maxD) / sp;
+        const r = nodeR(n.id);
+        pos[n.id].x = Math.max(r + 8, Math.min(SVG_W - r - 8, pos[n.id].x + fx[n.id] * cap));
+        pos[n.id].y = Math.max(r + 22, Math.min(SVG_H - r - 22, pos[n.id].y + fy[n.id] * cap));
+      });
+    }
+    return pos;
+  };
+
+  // Run simulation when positions empty (first load or after re-simulate click)
+  const isEmpty = Object.keys(positions).length === 0;
+  useEffect(() => {
+    if (npcs.length > 0 && isEmpty) setPositions(runLayout(npcs));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [npcs.map(n => n.id).join(","), isEmpty]);
+
+  // Slot in any newly added NPC near the centre
+  useEffect(() => {
+    if (!isEmpty) {
+      const missing = npcs.filter(n => !positions[n.id]);
+      if (missing.length > 0) {
+        setPositions(prev => {
+          const next = { ...prev };
+          missing.forEach(n => { next[n.id] = { x: SVG_W / 2 + (Math.random() - 0.5) * 80, y: SVG_H / 2 + (Math.random() - 0.5) * 80 }; });
+          return next;
+        });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [npcs.map(n => n.id).join(",")]);
 
-  // Initialise on first mount if positions is empty
-  useEffect(() => {
-    if (npcs.length > 0 && Object.keys(positions).length === 0) {
-      setPositions(initPositions(npcs));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const getSVGPoint = (clientX, clientY) => {
+  // Drag helpers
+  const getSVGPt = (cx, cy) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
     const rect = svg.getBoundingClientRect();
-    return {
-      x: ((clientX - rect.left) / rect.width) * SVG_W,
-      y: ((clientY - rect.top) / rect.height) * SVG_H,
-    };
+    return { x: ((cx - rect.left) / rect.width) * SVG_W, y: ((cy - rect.top) / rect.height) * SVG_H };
   };
-
-  const handlePointerDown = (e, id) => {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { id, moved: false };
-  };
-
-  const handlePointerMove = (e) => {
+  const onPtrDown = (e, id) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); dragRef.current = { id, moved: false }; };
+  const onPtrMove = (e) => {
     if (!dragRef.current) return;
-    const pt = getSVGPoint(e.clientX, e.clientY);
+    const pt = getSVGPt(e.clientX, e.clientY);
     dragRef.current.moved = true;
-    setPositions(prev => ({
-      ...prev,
-      [dragRef.current.id]: {
-        x: Math.max(NODE_R + 4, Math.min(SVG_W - NODE_R - 4, pt.x)),
-        y: Math.max(NODE_R + 18, Math.min(SVG_H - NODE_R - 18, pt.y)),
-      },
-    }));
+    const r = nodeR(dragRef.current.id);
+    setPositions(prev => ({ ...prev, [dragRef.current.id]: {
+      x: Math.max(r + 8, Math.min(SVG_W - r - 8, pt.x)),
+      y: Math.max(r + 22, Math.min(SVG_H - r - 22, pt.y)),
+    }}));
   };
-
-  const handlePointerUp = (e, id) => {
-    if (dragRef.current && !dragRef.current.moved) onSelectNpc(id);
-    dragRef.current = null;
-  };
+  const onPtrUp = (e, id) => { if (dragRef.current && !dragRef.current.moved) onSelectNpc(id); dragRef.current = null; };
 
   // Deduplicated edges
   const edges = [];
   const edgeKeys = new Set();
-  npcs.forEach(npc => {
-    (npc.connections || []).forEach(conn => {
-      if (!positions[npc.id] || !positions[conn.npcId]) return;
-      const key = [npc.id, conn.npcId].sort().join("--");
-      if (!edgeKeys.has(key)) {
-        edgeKeys.add(key);
-        edges.push({ from: npc.id, to: conn.npcId, label: conn.relationship });
-      }
+  npcs.forEach(n => {
+    (n.connections || []).forEach(c => {
+      if (!positions[n.id] || !positions[c.npcId]) return;
+      const key = [n.id, c.npcId].sort().join("|");
+      if (!edgeKeys.has(key)) { edgeKeys.add(key); edges.push({ from: n.id, to: c.npcId, label: c.relationship }); }
     });
   });
 
-  const attitudeColor = (attitude) => {
-    if (attitude === "Friendly") return "#5a9b5a";
-    if (attitude === "Hostile") return "#c45050";
-    if (attitude === "Neutral") return "#8a7d65";
-    return "#c8a84e";
-  };
-
-  const initials = (name) => {
-    const words = (name || "?").trim().split(/\s+/);
-    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
-  };
-
-  if (npcs.length === 0) {
-    return (
-      <div className="empty-state" style={{ marginTop: 20 }}>
-        <div className="icon">🕸</div>
-        <p>No NPCs to show in the web yet.</p>
-      </div>
-    );
-  }
+  if (npcs.length === 0) return (
+    <div className="empty-state" style={{ marginTop: 20 }}>
+      <div className="icon">🕸</div><p>No NPCs to show in the web yet.</p>
+    </div>
+  );
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button className="btn btn-sm" onClick={() => setPositions(initPositions(npcs))}>↺ Reset Layout</button>
+        <button className="btn btn-sm" onClick={() => setPositions({})}>↺ Re-simulate</button>
       </div>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${SVG_W} ${SVG_H}`}
         className="npc-web-svg"
-        onPointerMove={handlePointerMove}
+        style={{ background: "var(--parchment)", minHeight: 400 }}
+        onPointerMove={onPtrMove}
         onPointerUp={() => { dragRef.current = null; }}
         onPointerLeave={() => { dragRef.current = null; }}
       >
-        {/* Edges */}
+        {/* Edge lines — drawn first so nodes render on top */}
         {edges.map((edge, i) => {
-          const from = positions[edge.from];
-          const to = positions[edge.to];
-          if (!from || !to) return null;
-          const dx = to.x - from.x, dy = to.y - from.y;
-          const len = Math.sqrt(dx * dx + dy * dy) || 1;
-          const sx = from.x + (dx / len) * (NODE_R + 2);
-          const sy = from.y + (dy / len) * (NODE_R + 2);
-          const ex = to.x - (dx / len) * (NODE_R + 2);
-          const ey = to.y - (dy / len) * (NODE_R + 2);
-          const mx = (from.x + to.x) / 2;
-          const my = (from.y + to.y) / 2;
+          const f = positions[edge.from], t = positions[edge.to];
+          if (!f || !t) return null;
+          const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
           return (
             <g key={i}>
-              <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#4a3d2a" strokeWidth="1.5" strokeDasharray="5 3" />
+              <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#5a4d3a" strokeWidth="1" opacity="0.5" />
               {edge.label && (
-                <text x={mx} y={my} textAnchor="middle" fontSize="9" fill="#8a7d65" dy="-5" fontFamily="'MedievalSharp', cursive">
+                <text x={mx} y={my - 4} textAnchor="middle" fontSize="7.5" fill="#7a6d58" fontFamily="'MedievalSharp', cursive">
                   {edge.label.length > 22 ? edge.label.slice(0, 20) + "…" : edge.label}
                 </text>
               )}
@@ -1701,40 +1731,47 @@ function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
         {npcs.map(npc => {
           const pos = positions[npc.id];
           if (!pos) return null;
-          const border = attitudeColor(npc.attitude);
-          const facColor = npc.factionId ? (factions.find(f => f.id === npc.factionId) || {}).color : null;
+          const fill = nodeFill(npc);
+          const stroke = nodeStroke(npc);
+          const tc = textCol(fill);
+          const r = nodeR(npc.id);
           const isDead = npc.status === "Dead";
+          const firstName = npc.name.split(" ")[0];
+          const label = firstName.length > 10 ? firstName.slice(0, 9) + "…" : firstName;
           return (
-            <g
-              key={npc.id}
-              transform={`translate(${pos.x},${pos.y})`}
-              onPointerDown={e => handlePointerDown(e, npc.id)}
-              onPointerMove={handlePointerMove}
-              onPointerUp={e => handlePointerUp(e, npc.id)}
+            <g key={npc.id} transform={`translate(${pos.x},${pos.y})`}
+              onPointerDown={e => onPtrDown(e, npc.id)}
+              onPointerMove={onPtrMove}
+              onPointerUp={e => onPtrUp(e, npc.id)}
               style={{ cursor: "pointer", userSelect: "none" }}
-              opacity={isDead ? 0.45 : 1}
+              opacity={isDead ? 0.5 : 1}
             >
-              {facColor && (
-                <circle r={NODE_R + 6} fill="none" stroke={facColor} strokeWidth="3" strokeDasharray="5 3" opacity="0.65" />
-              )}
-              <circle r={NODE_R} fill="#2a2218" stroke={border} strokeWidth="2.5" />
-              <text textAnchor="middle" dy="0.35em" fontSize="13" fill={border} fontWeight="bold"
-                fontFamily="'Cinzel Decorative', cursive" style={{ pointerEvents: "none" }}>
+              {/* Parchment halo creates visual separation between edge lines and node border */}
+              <circle r={r + 3} fill="var(--parchment)" />
+              {/* Main filled circle — faction colour or dark default */}
+              <circle r={r} fill={fill} stroke={stroke} strokeWidth="2.5" />
+              {/* Initials */}
+              <text textAnchor="middle" dy="0.35em"
+                fontSize={Math.max(8, Math.round(r * 0.50))}
+                fill={tc} fontWeight="bold"
+                fontFamily="'Cinzel Decorative', cursive"
+                style={{ pointerEvents: "none" }}>
                 {initials(npc.name)}
               </text>
-              <text textAnchor="middle" y={NODE_R + 14} fontSize="10" fill="#d4c5a0"
+              {/* Name label below */}
+              <text textAnchor="middle" y={r + 14} fontSize="9" fill="var(--text-dim)"
                 fontFamily="'MedievalSharp', cursive" style={{ pointerEvents: "none" }}>
-                {npc.name.length > 14 ? npc.name.slice(0, 13) + "…" : npc.name}
+                {label}
               </text>
-              {npc.status === "Dead" && (
-                <text textAnchor="middle" y={-NODE_R - 6} fontSize="12" fill="#c45050" style={{ pointerEvents: "none" }}>✝</text>
+              {isDead && (
+                <text textAnchor="middle" y={-r - 6} fontSize="11" fill="#c45050" style={{ pointerEvents: "none" }}>✝</text>
               )}
             </g>
           );
         })}
       </svg>
       <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", textAlign: "center", marginTop: 6 }}>
-        Drag nodes to rearrange · Click to open NPC · Dashed ring = faction
+        Drag to rearrange · Click to view · Size = connections · Colour = faction
       </div>
     </div>
   );
