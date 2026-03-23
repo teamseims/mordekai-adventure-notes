@@ -213,6 +213,17 @@ body, html {
   color: var(--text-dim);
   margin-top: 3px;
 }
+.npc-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: var(--parchment-lighter);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
 
 .card-preview {
   font-size: 0.82rem;
@@ -1585,17 +1596,16 @@ function NPCTab({ data, setData, save, setNavTarget }) {
                 <div className="card-header">
                   <div style={{ flex: 1 }}>
                     <div className="card-title">{n.name}</div>
-                    <div className="card-meta">
-                      {n.race && <span>{n.race}</span>}
-                      {n.location && <span style={{ marginLeft: n.race ? 8 : 0 }}>📍 {n.location}</span>}
+                    <div className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                      {n.race && <span className="npc-tag">{n.race}</span>}
+                      {n.location && <span className="npc-tag">📍 {n.location}</span>}
                       {facName && (
-                        <span style={{ marginLeft: 8 }}>
-                          {facColor && <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: facColor, marginRight: 4, verticalAlign: "middle" }} />}
+                        <span className="npc-tag" style={{ background: facColor ? facColor + "33" : undefined, borderColor: facColor || undefined, color: facColor || undefined }}>
                           ⚔ {facName}
                         </span>
                       )}
-                      {connCount > 0 && <span style={{ marginLeft: 8 }}>{connCount} link{connCount !== 1 ? "s" : ""}</span>}
-                      {encCount > 0 && <span style={{ marginLeft: 8 }}>{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
+                      {connCount > 0 && <span className="npc-tag">{connCount} link{connCount !== 1 ? "s" : ""}</span>}
+                      {encCount > 0 && <span className="npc-tag">{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
