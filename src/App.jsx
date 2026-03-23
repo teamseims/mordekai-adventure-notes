@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import * as d3 from "d3";
 
 const STORAGE_KEY = "mordekai-notes-v1";
 
@@ -895,7 +896,158 @@ body, html {
   margin: 2px;
   cursor: default;
 }
+
+/* ─── NPC Graph ─── */
+.npc-graph-container {
+  width: 100%;
+  height: 500px;
+  background: var(--parchment);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+}
+.npc-graph-container:active { cursor: grabbing; }
+.npc-graph-container svg { width: 100%; height: 100%; display: block; }
+
+.graph-tooltip {
+  position: absolute;
+  background: var(--parchment-light);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  max-width: 260px;
+}
+.graph-tooltip-name {
+  font-family: 'Cinzel Decorative', cursive;
+  font-size: 0.85rem;
+  color: var(--gold);
+  margin-bottom: 3px;
+}
+.graph-tooltip-meta {
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.graph-edge-tooltip-line {
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.78rem;
+  color: var(--text);
+  line-height: 1.7;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.graph-edge-tooltip-name { color: var(--gold); }
+.graph-edge-tooltip-arrow { color: var(--text-dim); }
+.graph-edge-tooltip-rel { color: var(--text-bright); font-style: italic; }
+
+.graph-legend {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(26,21,16,0.88);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  z-index: 5;
+  max-width: 160px;
+}
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.graph-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* view-toggle-btn alias so both selectors work */
+.view-toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 7px 13px;
+  color: var(--text-dim);
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-toggle-btn.active { background: var(--gold-dim); color: var(--parchment); }
+
+@media (max-width: 600px) {
+  .npc-graph-container { height: 350px; }
+}
 `;
+
+// ─────────────────────────────────────────────
+// Graph helpers (module-level pure functions)
+// ─────────────────────────────────────────────
+
+const FACTION_PALETTE = [
+  "#c8a84e", "#5a9b5a", "#5a8abb", "#c45050",
+  "#9b6bb5", "#d48a4e", "#4ababa", "#ba4a8a",
+  "#8ab54e", "#b5864e", "#6a6abf", "#bf6a6a",
+];
+const GRAPH_DEFAULT_COLOR = "#8a7d65";
+
+function hashFactionColor(faction) {
+  if (!faction) return GRAPH_DEFAULT_COLOR;
+  let h = 0;
+  for (let i = 0; i < faction.length; i++) h = faction.charCodeAt(i) + ((h << 5) - h);
+  return FACTION_PALETTE[Math.abs(h) % FACTION_PALETTE.length];
+}
+
+function buildGraphData(npcs) {
+  // Build a canonical edge map: sorted pair key → all directional connections
+  const edgeMap = new Map();
+  npcs.forEach(npc => {
+    (npc.connections || []).forEach(conn => {
+      if (!npcs.find(n => n.id === conn.npcId)) return;
+      const key = [npc.id, conn.npcId].sort().join("::");
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push({
+        sourceId: npc.id,
+        sourceName: npc.name,
+        targetId: conn.npcId,
+        targetName: npcs.find(n => n.id === conn.npcId)?.name || "(deleted)",
+        relationship: conn.relationship,
+      });
+    });
+  });
+
+  const links = [];
+  edgeMap.forEach((connections, key) => {
+    const [idA, idB] = key.split("::");
+    links.push({ source: idA, target: idB, connections });
+  });
+
+  const connectedIds = new Set();
+  links.forEach(l => { connectedIds.add(l.source); connectedIds.add(l.target); });
+
+  const nodes = npcs
+    .filter(n => connectedIds.has(n.id))
+    .map(n => ({
+      id: n.id,
+      name: n.name,
+      faction: n.faction || "",
+      factionId: n.factionId || "",
+      race: n.race || "",
+      status: n.status || "Unknown",
+      attitude: n.attitude || "Neutral",
+      connectionCount: links.filter(l => l.source === n.id || l.target === n.id).length,
+    }));
+
+  return { nodes, links };
+}
 
 // ─────────────────────────────────────────────
 // Components
@@ -1124,7 +1276,6 @@ function NPCTab({ data, setData, save }) {
   const [confirmDel, setConfirmDel] = useState(null);
   const [encForm, setEncForm] = useState({ sessionNum: "", note: "" });
   const [connForm, setConnForm] = useState({ npcId: "", relationship: "" });
-  const [webPositions, setWebPositions] = useState({});
 
   const npcs = data.npcs || [];
 
@@ -1464,15 +1615,26 @@ function NPCTab({ data, setData, save }) {
     return null;
   };
 
+  const navigateToNPC = (id) => {
+    setDisplayMode("list");
+    setEditId(id);
+    setEncForm({ sessionNum: "", note: "" });
+    setView("detail");
+  };
+
   return (
     <div>
       <div className="toolbar">
-        <input className="search-input" placeholder="Search NPCs..." value={search} onChange={e => setSearch(e.target.value)} />
+        {displayMode === "list" && (
+          <input className="search-input" placeholder="Search NPCs..." value={search} onChange={e => setSearch(e.target.value)} />
+        )}
         <div className="view-toggle">
-          <button className={displayMode === "list" ? "active" : ""} onClick={() => setDisplayMode("list")}>List</button>
-          <button className={displayMode === "web" ? "active" : ""} onClick={() => setDisplayMode("web")}>Web</button>
+          <button className={`view-toggle-btn ${displayMode === "list" ? "active" : ""}`} onClick={() => setDisplayMode("list")}>List</button>
+          <button className={`view-toggle-btn ${displayMode === "graph" ? "active" : ""}`} onClick={() => setDisplayMode("graph")}>Graph</button>
         </div>
-        <button className="btn btn-primary" onClick={openNew}>+ New NPC</button>
+        {displayMode === "list" && (
+          <button className="btn btn-primary" onClick={openNew}>+ New NPC</button>
+        )}
       </div>
       {displayMode === "list" && (
         <div className="filter-row">
@@ -1481,13 +1643,11 @@ function NPCTab({ data, setData, save }) {
           ))}
         </div>
       )}
-      {displayMode === "web" ? (
-        <NPCWeb
+      {displayMode === "graph" ? (
+        <NPCGraph
           npcs={npcs}
           factions={data.factions || []}
-          positions={webPositions}
-          setPositions={setWebPositions}
-          onSelectNpc={(id) => { setEditId(id); setEncForm({ sessionNum: "", note: "" }); setView("detail"); }}
+          onNodeClick={navigateToNPC}
         />
       ) : filtered.length === 0 ? (
         <div className="empty-state">
@@ -1535,244 +1695,265 @@ function NPCTab({ data, setData, save }) {
   );
 }
 
-// ─── NPC WEB ───
-function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
-  const SVG_W = 900;
-  const SVG_H = 580;
+// ─── NPC GRAPH (D3 force-directed) ───
+function NPCGraph({ npcs, factions, onNodeClick }) {
+  const containerRef = useRef(null);
   const svgRef = useRef(null);
-  const dragRef = useRef(null);
+  const simRef = useRef(null);
+  const simNodesRef = useRef([]);
+  const simLinksRef = useRef([]);
+  const rafRef = useRef(null);
+  const zoomRef = useRef(null);
 
-  // Connection degree per NPC — drives node radius
-  const degree = {};
-  npcs.forEach(n => { degree[n.id] = 0; });
-  npcs.forEach(n => {
-    (n.connections || []).forEach(c => {
-      degree[n.id] = (degree[n.id] || 0) + 1;
-      if (degree[c.npcId] !== undefined) degree[c.npcId]++;
-    });
-  });
-  const nodeR = (id) => Math.max(14, Math.min(36, 14 + (degree[id] || 0) * 3.5));
+  const [renderTick, setRenderTick] = useState(0);
+  const [zoomT, setZoomT] = useState({ x: 0, y: 0, k: 1 });
+  const [tooltip, setTooltip] = useState(null);      // {type:"node"|"edge", x, y, data}
+  const [hovNode, setHovNode] = useState(null);
+  const [hovEdge, setHovEdge] = useState(null);       // canonical edge key
 
-  // Visual helpers
-  const getFac = (n) => n.factionId ? factions.find(f => f.id === n.factionId) || null : null;
-  const nodeFill = (n) => { const f = getFac(n); return f ? f.color : "#1a1510"; };
-  const nodeStroke = (n) => {
-    const f = getFac(n);
-    if (f) return f.color;
-    if (n.attitude === "Friendly") return "#5a9b5a";
-    if (n.attitude === "Hostile") return "#c45050";
-    if (n.attitude === "Neutral") return "#6a6055";
-    return "#c8a84e";
-  };
-  const textCol = (fill) => {
-    if (!fill || fill === "#1a1510") return "#c8a84e";
-    const r = parseInt(fill.slice(1, 3), 16);
-    const g = parseInt(fill.slice(3, 5), 16);
-    const b = parseInt(fill.slice(5, 7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.45 ? "#1a1510" : "#f5edd8";
-  };
-  const initials = (name) => {
-    const w = (name || "?").trim().split(/\s+/);
-    return w.length === 1 ? w[0].slice(0, 2).toUpperCase() : (w[0][0] + w[w.length - 1][0]).toUpperCase();
-  };
-
-  // Fruchterman-Reingold force layout
-  const runLayout = (npcList) => {
-    if (npcList.length === 0) return {};
-    const pos = {}, vel = {};
-    npcList.forEach((n, i) => {
-      const angle = (i / npcList.length) * 2 * Math.PI;
-      const r = Math.min(SVG_W, SVG_H) * 0.28 + (Math.random() - 0.5) * 40;
-      pos[n.id] = { x: SVG_W / 2 + r * Math.cos(angle), y: SVG_H / 2 + r * Math.sin(angle) };
-      vel[n.id] = { x: 0, y: 0 };
-    });
-    const edgeSet = [];
-    const seen = new Set();
-    npcList.forEach(n => {
-      (n.connections || []).forEach(c => {
-        const key = [n.id, c.npcId].sort().join("|");
-        if (!seen.has(key) && pos[c.npcId] !== undefined) { seen.add(key); edgeSet.push([n.id, c.npcId]); }
-      });
-    });
-    const k = Math.sqrt((SVG_W * SVG_H) / Math.max(npcList.length, 1)) * 0.78;
-    const ITERS = 300;
-    for (let iter = 0; iter < ITERS; iter++) {
-      const cool = Math.pow(1 - iter / ITERS, 1.2);
-      const fx = {}, fy = {};
-      npcList.forEach(n => { fx[n.id] = 0; fy[n.id] = 0; });
-      // Repulsion between every pair
-      for (let i = 0; i < npcList.length; i++) {
-        for (let j = i + 1; j < npcList.length; j++) {
-          const u = npcList[i].id, v = npcList[j].id;
-          const dx = pos[u].x - pos[v].x, dy = pos[u].y - pos[v].y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const rep = (k * k) / d;
-          fx[u] += (dx / d) * rep; fy[u] += (dy / d) * rep;
-          fx[v] -= (dx / d) * rep; fy[v] -= (dy / d) * rep;
-        }
-      }
-      // Attraction along edges
-      edgeSet.forEach(([u, v]) => {
-        const dx = pos[v].x - pos[u].x, dy = pos[v].y - pos[u].y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const att = (d * d) / k;
-        fx[u] += (dx / d) * att; fy[u] += (dy / d) * att;
-        fx[v] -= (dx / d) * att; fy[v] -= (dy / d) * att;
-      });
-      // Weak gravity toward centre keeps isolated nodes from drifting
-      npcList.forEach(n => {
-        fx[n.id] += (SVG_W / 2 - pos[n.id].x) * 0.006;
-        fy[n.id] += (SVG_H / 2 - pos[n.id].y) * 0.006;
-      });
-      // Apply with cooling + boundary clamp
-      const maxD = Math.max(2, 55 * cool);
-      npcList.forEach(n => {
-        const sp = Math.sqrt(fx[n.id] ** 2 + fy[n.id] ** 2) || 1;
-        const cap = Math.min(sp, maxD) / sp;
-        const r = nodeR(n.id);
-        pos[n.id].x = Math.max(r + 8, Math.min(SVG_W - r - 8, pos[n.id].x + fx[n.id] * cap));
-        pos[n.id].y = Math.max(r + 22, Math.min(SVG_H - r - 22, pos[n.id].y + fy[n.id] * cap));
-      });
+  // Resolve faction colour: prefer Factions-tab colour, fall back to hash
+  const getFactionColor = useCallback((node) => {
+    if (node.factionId) {
+      const f = factions.find(f => f.id === node.factionId);
+      if (f) return f.color;
     }
-    return pos;
-  };
+    return hashFactionColor(node.faction);
+  }, [factions]);
 
-  // Run simulation when positions empty (first load or after re-simulate click)
-  const isEmpty = Object.keys(positions).length === 0;
-  useEffect(() => {
-    if (npcs.length > 0 && isEmpty) setPositions(runLayout(npcs));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [npcs.map(n => n.id).join(","), isEmpty]);
+  // Change key: rebuild + restart simulation whenever NPC list or connections change
+  const npcKey = npcs.map(n => n.id + "|" + (n.connections || []).length).join(",");
 
-  // Slot in any newly added NPC near the centre
+  // ── Zoom — set up once on mount ──
   useEffect(() => {
-    if (!isEmpty) {
-      const missing = npcs.filter(n => !positions[n.id]);
-      if (missing.length > 0) {
-        setPositions(prev => {
-          const next = { ...prev };
-          missing.forEach(n => { next[n.id] = { x: SVG_W / 2 + (Math.random() - 0.5) * 80, y: SVG_H / 2 + (Math.random() - 0.5) * 80 }; });
-          return next;
-        });
-      }
+    if (!svgRef.current) return;
+    const zoom = d3.zoom()
+      .scaleExtent([0.15, 4])
+      .on("zoom", (e) => setZoomT({ x: e.transform.x, y: e.transform.y, k: e.transform.k }));
+    zoomRef.current = zoom;
+    d3.select(svgRef.current).call(zoom);
+    return () => { d3.select(svgRef.current).on(".zoom", null); };
+  }, []);
+
+  // ── Simulation — restart whenever NPC data changes ──
+  useEffect(() => {
+    const { nodes, links } = buildGraphData(npcs);
+
+    // Stop previous simulation and cancel any pending rAF
+    if (simRef.current) simRef.current.stop();
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+
+    if (nodes.length === 0) {
+      simNodesRef.current = [];
+      simLinksRef.current = [];
+      setRenderTick(t => t + 1);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [npcs.map(n => n.id).join(",")]);
 
-  // Drag helpers
-  const getSVGPt = (cx, cy) => {
     const svg = svgRef.current;
-    if (!svg) return { x: 0, y: 0 };
-    const rect = svg.getBoundingClientRect();
-    return { x: ((cx - rect.left) / rect.width) * SVG_W, y: ((cy - rect.top) / rect.height) * SVG_H };
-  };
-  const onPtrDown = (e, id) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); dragRef.current = { id, moved: false }; };
-  const onPtrMove = (e) => {
-    if (!dragRef.current) return;
-    const pt = getSVGPt(e.clientX, e.clientY);
-    dragRef.current.moved = true;
-    const r = nodeR(dragRef.current.id);
-    setPositions(prev => ({ ...prev, [dragRef.current.id]: {
-      x: Math.max(r + 8, Math.min(SVG_W - r - 8, pt.x)),
-      y: Math.max(r + 22, Math.min(SVG_H - r - 22, pt.y)),
-    }}));
-  };
-  const onPtrUp = (e, id) => { if (dragRef.current && !dragRef.current.moved) onSelectNpc(id); dragRef.current = null; };
+    const w = svg ? (svg.clientWidth || 800) : 800;
+    const h = svg ? (svg.clientHeight || 500) : 500;
 
-  // Deduplicated edges
-  const edges = [];
-  const edgeKeys = new Set();
-  npcs.forEach(n => {
-    (n.connections || []).forEach(c => {
-      if (!positions[n.id] || !positions[c.npcId]) return;
-      const key = [n.id, c.npcId].sort().join("|");
-      if (!edgeKeys.has(key)) { edgeKeys.add(key); edges.push({ from: n.id, to: c.npcId, label: c.relationship }); }
+    // Preserve positions of nodes that already exist (data update, not first load)
+    const prevPos = {};
+    simNodesRef.current.forEach(n => { prevPos[n.id] = { x: n.x, y: n.y }; });
+
+    const simNodes = nodes.map(n => ({
+      ...n,
+      x: prevPos[n.id]?.x ?? w / 2 + (Math.random() - 0.5) * 200,
+      y: prevPos[n.id]?.y ?? h / 2 + (Math.random() - 0.5) * 200,
+    }));
+    const simLinks = links.map(l => ({ ...l }));
+
+    simNodesRef.current = simNodes;
+    simLinksRef.current = simLinks;
+
+    const sim = d3.forceSimulation(simNodes)
+      .force("link", d3.forceLink(simLinks).id(d => d.id).distance(120))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(w / 2, h / 2))
+      .force("collide", d3.forceCollide().radius(30));
+
+    simRef.current = sim;
+
+    const scheduleRender = () => {
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        setRenderTick(t => t + 1);
+      });
+    };
+
+    sim.on("tick", scheduleRender).on("end", () => setRenderTick(t => t + 1));
+
+    return () => {
+      sim.stop();
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [npcKey]);
+
+  // ── Tooltip helpers ──
+  const getTooltipPos = (x, y) => {
+    const c = containerRef.current;
+    if (!c) return { left: x + 12, top: y + 12 };
+    const { width, height } = c.getBoundingClientRect();
+    return {
+      left: Math.min(x + 14, width - 268),
+      top: Math.min(y + 14, height - 120),
+    };
+  };
+
+  // ── Legend ── (factions visible in current graph)
+  const factionLegend = useMemo(() => {
+    const seen = new Map();
+    simNodesRef.current.forEach(n => {
+      const key = n.factionId || n.faction;
+      if (key && !seen.has(key)) seen.set(key, { label: n.faction || "", color: getFactionColor(n) });
     });
-  });
+    return [...seen.values()].filter(f => f.label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderTick, getFactionColor]);
 
+  // ── Empty states ──
   if (npcs.length === 0) return (
     <div className="empty-state" style={{ marginTop: 20 }}>
-      <div className="icon">🕸</div><p>No NPCs to show in the web yet.</p>
+      <div className="icon">👤</div>
+      <p>No NPCs yet. Add some NPCs first.</p>
     </div>
   );
 
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button className="btn btn-sm" onClick={() => setPositions({})}>↺ Re-simulate</button>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-        className="npc-web-svg"
-        style={{ background: "var(--parchment)", minHeight: 400 }}
-        onPointerMove={onPtrMove}
-        onPointerUp={() => { dragRef.current = null; }}
-        onPointerLeave={() => { dragRef.current = null; }}
-      >
-        {/* Edge lines — drawn first so nodes render on top */}
-        {edges.map((edge, i) => {
-          const f = positions[edge.from], t = positions[edge.to];
-          if (!f || !t) return null;
-          const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
-          return (
-            <g key={i}>
-              <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#5a4d3a" strokeWidth="1" opacity="0.5" />
-              {edge.label && (
-                <text x={mx} y={my - 4} textAnchor="middle" fontSize="7.5" fill="#7a6d58" fontFamily="'MedievalSharp', cursive">
-                  {edge.label.length > 22 ? edge.label.slice(0, 20) + "…" : edge.label}
-                </text>
-              )}
-            </g>
-          );
-        })}
+  const nodes = simNodesRef.current;
+  const links = simLinksRef.current;
 
-        {/* Nodes */}
-        {npcs.map(npc => {
-          const pos = positions[npc.id];
-          if (!pos) return null;
-          const fill = nodeFill(npc);
-          const stroke = nodeStroke(npc);
-          const tc = textCol(fill);
-          const r = nodeR(npc.id);
-          const isDead = npc.status === "Dead";
-          const firstName = npc.name.split(" ")[0];
-          const label = firstName.length > 10 ? firstName.slice(0, 9) + "…" : firstName;
-          return (
-            <g key={npc.id} transform={`translate(${pos.x},${pos.y})`}
-              onPointerDown={e => onPtrDown(e, npc.id)}
-              onPointerMove={onPtrMove}
-              onPointerUp={e => onPtrUp(e, npc.id)}
-              style={{ cursor: "pointer", userSelect: "none" }}
-              opacity={isDead ? 0.5 : 1}
-            >
-              {/* Parchment halo creates visual separation between edge lines and node border */}
-              <circle r={r + 3} fill="var(--parchment)" />
-              {/* Main filled circle — faction colour or dark default */}
-              <circle r={r} fill={fill} stroke={stroke} strokeWidth="2.5" />
-              {/* Initials */}
-              <text textAnchor="middle" dy="0.35em"
-                fontSize={Math.max(8, Math.round(r * 0.50))}
-                fill={tc} fontWeight="bold"
-                fontFamily="'Cinzel Decorative', cursive"
-                style={{ pointerEvents: "none" }}>
-                {initials(npc.name)}
-              </text>
-              {/* Name label below */}
-              <text textAnchor="middle" y={r + 14} fontSize="9" fill="var(--text-dim)"
-                fontFamily="'MedievalSharp', cursive" style={{ pointerEvents: "none" }}>
-                {label}
-              </text>
-              {isDead && (
-                <text textAnchor="middle" y={-r - 6} fontSize="11" fill="#c45050" style={{ pointerEvents: "none" }}>✝</text>
-              )}
-            </g>
-          );
-        })}
+  if (nodes.length === 0) return (
+    <div className="empty-state" style={{ marginTop: 20 }}>
+      <div className="icon">🕸</div>
+      <p>No connections to visualize.</p>
+      <p style={{ fontSize: "0.78rem", marginTop: 4 }}>Add connections between NPCs to see the network graph.</p>
+    </div>
+  );
+
+  const { x: tx, y: ty, k: tk } = zoomT;
+
+  return (
+    <div ref={containerRef} className="npc-graph-container">
+      <svg ref={svgRef}>
+        <g transform={`translate(${tx},${ty}) scale(${tk})`}>
+
+          {/* ── Edges ── */}
+          {links.map((link) => {
+            const src = typeof link.source === "object" ? link.source : null;
+            const tgt = typeof link.target === "object" ? link.target : null;
+            if (!src || !tgt || src.x == null) return null;
+            const edgeKey = [src.id, tgt.id].sort().join("::");
+            const isHov = hovEdge === edgeKey;
+            return (
+              <g key={edgeKey}>
+                {/* Visible line */}
+                <line
+                  x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                  stroke={isHov ? "rgba(200,168,78,0.65)" : "rgba(200,168,78,0.25)"}
+                  strokeWidth={isHov ? 2.5 : 1.5}
+                  style={{ pointerEvents: "none" }}
+                />
+                {/* Wide transparent hit-area — makes thin lines easy to hover */}
+                <line
+                  x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                  stroke="transparent" strokeWidth={12}
+                  style={{ cursor: "pointer" }}
+                  onMouseEnter={(e) => {
+                    setHovEdge(edgeKey);
+                    const rect = containerRef.current.getBoundingClientRect();
+                    setTooltip({ type: "edge", x: e.clientX - rect.left, y: e.clientY - rect.top, data: link });
+                  }}
+                  onMouseMove={(e) => {
+                    if (tooltip?.type === "edge") {
+                      const rect = containerRef.current.getBoundingClientRect();
+                      setTooltip(t => ({ ...t, x: e.clientX - rect.left, y: e.clientY - rect.top }));
+                    }
+                  }}
+                  onMouseLeave={() => { setHovEdge(null); setTooltip(null); }}
+                />
+              </g>
+            );
+          })}
+
+          {/* ── Nodes ── */}
+          {nodes.map(node => {
+            if (node.x == null) return null;
+            const isHov = hovNode === node.id;
+            const color = getFactionColor(node);
+            const firstName = node.name.split(" ")[0];
+            const label = firstName.length > 13 ? firstName.slice(0, 12) + "…" : firstName;
+            return (
+              <g key={node.id}
+                transform={`translate(${node.x},${node.y})`}
+                style={{ cursor: "pointer" }}
+                onClick={() => onNodeClick(node.id)}
+                onMouseEnter={(e) => {
+                  setHovNode(node.id);
+                  const rect = containerRef.current.getBoundingClientRect();
+                  // Convert SVG node coords to container-relative coords
+                  setTooltip({
+                    type: "node",
+                    x: node.x * tk + tx,
+                    y: node.y * tk + ty,
+                    data: node,
+                  });
+                }}
+                onMouseLeave={() => { setHovNode(null); setTooltip(null); }}
+              >
+                <circle r={isHov ? 15 : 12} fill={color} stroke={isHov ? "#c8a84e" : "#2a2218"} strokeWidth={2} />
+                <text
+                  textAnchor="middle" y={22} fontSize={9}
+                  fill="#8a7d65" fontFamily="'MedievalSharp', cursive"
+                  style={{ pointerEvents: "none" }}
+                >
+                  {label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
-      <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", textAlign: "center", marginTop: 6 }}>
-        Drag to rearrange · Click to view · Size = connections · Colour = faction
-      </div>
+
+      {/* ── Tooltip ── */}
+      {tooltip && (
+        <div className="graph-tooltip" style={{ position: "absolute", ...getTooltipPos(tooltip.x, tooltip.y) }}>
+          {tooltip.type === "node" ? (
+            <>
+              <div className="graph-tooltip-name">{tooltip.data.name}</div>
+              <div className="graph-tooltip-meta">
+                {[tooltip.data.race, tooltip.data.status].filter(Boolean).join(" · ")}
+                {tooltip.data.faction && <><br />{tooltip.data.faction}</>}
+                <br />{tooltip.data.connectionCount} connection{tooltip.data.connectionCount !== 1 ? "s" : ""}
+              </div>
+            </>
+          ) : (
+            (tooltip.data.connections || []).map((conn, i) => (
+              <div key={i} className="graph-edge-tooltip-line">
+                <span className="graph-edge-tooltip-name">{conn.sourceName}</span>
+                <span className="graph-edge-tooltip-arrow">→</span>
+                <span className="graph-edge-tooltip-rel">{conn.relationship}</span>
+                <span className="graph-edge-tooltip-arrow">→</span>
+                <span className="graph-edge-tooltip-name">{conn.targetName}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Legend (only shown when ≥2 factions) ── */}
+      {factionLegend.length > 1 && (
+        <div className="graph-legend">
+          {factionLegend.map(f => (
+            <div key={f.label} className="graph-legend-item">
+              <div className="graph-legend-dot" style={{ background: f.color }} />
+              {f.label}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
