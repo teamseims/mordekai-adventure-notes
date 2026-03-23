@@ -1292,25 +1292,19 @@ function SessionTab({ data, setData, save }) {
 
 // ─── NPC REGISTRY ───
 function NPCTab({ data, setData, save, setNavTarget }) {
-  const [view, setView] = useState("list");
-  const [displayMode, setDisplayMode] = useState("list"); // "list" | "web"
+  const [formOpen, setFormOpen] = useState(false);
+  const [displayMode, setDisplayMode] = useState("list");
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
-  const [encForm, setEncForm] = useState({ sessionNum: "", note: "" });
+  const [encForms, setEncForms] = useState({});
   const [connForm, setConnForm] = useState({ npcId: "", relationship: "" });
 
   const npcs = data.npcs || [];
-
-  // Get NPC name by id
-  const npcName = (id) => {
-    const n = npcs.find(x => x.id === id);
-    return n ? n.name : "(deleted)";
-  };
-
-  // Other NPCs available for connection (exclude self)
+  const npcName = (id) => { const n = npcs.find(x => x.id === id); return n ? n.name : "(deleted)"; };
   const otherNpcs = (selfId) => npcs.filter(n => n.id !== selfId);
 
   const filtered = npcs.filter(n => {
@@ -1329,20 +1323,18 @@ function NPCTab({ data, setData, save, setNavTarget }) {
     setForm({ name: "", location: "", faction: "", factionId: "", status: "Alive", attitude: "Neutral", race: "", appearance: "", distinguishing: "", connections: [], belongings: "", notes: "", encounters: [] });
     setEditId(null);
     setConnForm({ npcId: "", relationship: "" });
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (n) => {
-    // Migrate old string connections to array if needed
     const conns = Array.isArray(n.connections) ? n.connections : [];
     setForm({ ...n, connections: conns, distinguishing: n.distinguishing || n.voiceMannerism || "" });
     setEditId(n.id);
     setConnForm({ npcId: "", relationship: "" });
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
-    // Clean out voiceMannerism if migrated
     const saveForm = { ...form };
     delete saveForm.voiceMannerism;
     if (editId) {
@@ -1355,17 +1347,15 @@ function NPCTab({ data, setData, save, setNavTarget }) {
       const nd = { ...data, npcs: [...npcs, entry], nextIds: { ...data.nextIds, npc: data.nextIds.npc + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
     const nd = { ...data, npcs: npcs.filter(n => n.id !== id) };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  // Connection helpers (on form, before save)
   const addConnection = () => {
     if (!connForm.npcId || !connForm.relationship) return;
     const conns = [...(form.connections || []), { npcId: connForm.npcId, relationship: connForm.relationship }];
@@ -1379,17 +1369,20 @@ function NPCTab({ data, setData, save, setNavTarget }) {
     setForm({ ...form, connections: conns });
   };
 
-  // Encounter log helpers (on saved data, immediate save)
+  const getEncForm = (npcId) => encForms[npcId] || { sessionNum: "", note: "" };
+  const setEncForm = (npcId, val) => setEncForms(ef => ({ ...ef, [npcId]: val }));
+
   const addEncounter = (npcId) => {
-    if (!encForm.sessionNum && !encForm.note) return;
+    const ef = getEncForm(npcId);
+    if (!ef.sessionNum && !ef.note) return;
     const updated = npcs.map(n => {
       if (n.id !== npcId) return n;
-      const encounters = [...(n.encounters || []), { sessionNum: parseInt(encForm.sessionNum) || 0, note: encForm.note, addedAt: new Date().toISOString() }];
+      const encounters = [...(n.encounters || []), { sessionNum: parseInt(ef.sessionNum) || 0, note: ef.note, addedAt: new Date().toISOString() }];
       return { ...n, encounters, updatedAt: new Date().toISOString() };
     });
     const nd = { ...data, npcs: updated };
     setData(nd); save(nd);
-    setEncForm({ sessionNum: "", note: "" });
+    setEncForm(npcId, { sessionNum: "", note: "" });
   };
 
   const removeEncounter = (npcId, idx) => {
@@ -1403,12 +1396,23 @@ function NPCTab({ data, setData, save, setNavTarget }) {
     setData(nd); save(nd);
   };
 
-  const viewNPC = npcs.find(n => n.id === editId);
+  const factionName = (n) => {
+    if (n.factionId) { const f = (data.factions || []).find(f => f.id === n.factionId); return f ? f.name : n.faction; }
+    return n.faction;
+  };
+  const factionColor = (n) => {
+    if (n.factionId) { const f = (data.factions || []).find(f => f.id === n.factionId); return f ? f.color : null; }
+    return null;
+  };
 
-  if (view === "form") {
+  const navigateToNPC = (id) => {
+    setDisplayMode("list");
+    setExpanded(e => ({ ...e, [id]: true }));
+  };
+
+  if (formOpen) {
     const conns = form.connections || [];
     const availableForConn = otherNpcs(editId).filter(n => !conns.some(c => c.npcId === n.id));
-
     return (
       <div className="form-panel">
         <div className="form-title">{editId ? "Edit NPC" : "New NPC"}</div>
@@ -1477,8 +1481,6 @@ function NPCTab({ data, setData, save, setNavTarget }) {
             <input className="form-input" placeholder="e.g. Silver dagger, scarab amulet..." value={form.belongings || ""} onChange={e => setForm({ ...form, belongings: e.target.value })} />
           </div>
         </div>
-
-        {/* Connections */}
         <div className="form-row">
           <div className="form-group full">
             <label className="form-label">Connections to Other NPCs</label>
@@ -1514,7 +1516,6 @@ function NPCTab({ data, setData, save, setNavTarget }) {
             )}
           </div>
         </div>
-
         <div className="form-row">
           <div className="form-group full">
             <label className="form-label">Notes</label>
@@ -1522,135 +1523,12 @@ function NPCTab({ data, setData, save, setNavTarget }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add NPC"}</button>
         </div>
       </div>
     );
   }
-
-  if (view === "detail" && viewNPC) {
-    const n = viewNPC;
-    const encounters = n.encounters || [];
-    const conns = Array.isArray(n.connections) ? n.connections : [];
-    const matchedLoc = n.location ? (data.locations || []).find(l => l.name && l.name.toLowerCase() === n.location.toLowerCase()) : null;
-    const detailFields = [
-      { label: "Race", value: n.race },
-      { label: "Appearance", value: n.appearance },
-      { label: "Features", value: n.distinguishing || n.voiceMannerism },
-      { label: "Belongings", value: n.belongings },
-      { label: "Location", value: n.location, action: matchedLoc ? () => setNavTarget({ tab: "locations", id: matchedLoc.id }) : null },
-      { label: "Organisation", value: n.faction },
-    ].filter(f => f.value);
-
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); setEncForm({ sessionNum: "", note: "" }); }} />
-        <div className="detail-panel">
-          <div className="card-header">
-            <div className="detail-title">{n.name}</div>
-            <div style={{ display: "flex", gap: 4 }}>
-              <Badge status={n.status} />
-              <Badge status={n.attitude} />
-            </div>
-          </div>
-
-          {detailFields.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              {detailFields.map(f => (
-                <div key={f.label} className="npc-detail-field">
-                  <span className="field-label">{f.label}</span>
-                  {f.action ? (
-                    <button className="field-value link-btn" onClick={f.action}>{f.value}</button>
-                  ) : (
-                    <span className="field-value">{f.value}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {conns.length > 0 && (
-            <div className="detail-section">
-              <div className="detail-section-title">Connections</div>
-              <div className="connection-list">
-                {conns.map((c, idx) => (
-                  <div key={idx} className="connection-entry" style={{ cursor: "pointer" }} onClick={() => { setEditId(c.npcId); setEncForm({ sessionNum: "", note: "" }); }}>
-                    <span className="connection-name">{npcName(c.npcId)}</span>
-                    <span className="connection-arrow">→</span>
-                    <span className="connection-rel">{c.relationship}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {n.notes && (
-            <div className="detail-section">
-              <div className="detail-section-title">Notes</div>
-              <div className="detail-body">{n.notes}</div>
-            </div>
-          )}
-
-          <div className="detail-section">
-            <div className="detail-section-title">Encounter Log ({encounters.length})</div>
-            {encounters.length > 0 ? (
-              <div className="encounter-list">
-                {encounters.map((enc, idx) => (
-                  <div key={idx} className="encounter-entry">
-                    <span className="encounter-session">#{enc.sessionNum || "?"}</span>
-                    <span className="encounter-note">{enc.note}</span>
-                    <button className="encounter-remove" title="Remove" onClick={() => removeEncounter(n.id, idx)}>✕</button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No encounters logged yet.</div>
-            )}
-            <div className="encounter-add-row">
-              <div className="form-group" style={{ maxWidth: 70, flex: "0 0 70px" }}>
-                <label className="form-label">Sess. #</label>
-                <input className="form-input" type="number" placeholder="#" value={encForm.sessionNum} onChange={e => setEncForm({ ...encForm, sessionNum: e.target.value })} />
-              </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">What happened</label>
-                <input className="form-input" placeholder="Short note about this encounter..." value={encForm.note} onChange={e => setEncForm({ ...encForm, note: e.target.value })} onKeyDown={e => { if (e.key === "Enter") addEncounter(n.id); }} />
-              </div>
-              <button className="btn btn-sm" style={{ marginBottom: 0, alignSelf: "flex-end" }} onClick={() => addEncounter(n.id)}>Add</button>
-            </div>
-          </div>
-
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(n)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(n.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete ${n.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
-      </div>
-    );
-  }
-
-  const factionName = (n) => {
-    if (n.factionId) {
-      const f = (data.factions || []).find(f => f.id === n.factionId);
-      return f ? f.name : n.faction;
-    }
-    return n.faction;
-  };
-  const factionColor = (n) => {
-    if (n.factionId) {
-      const f = (data.factions || []).find(f => f.id === n.factionId);
-      return f ? f.color : null;
-    }
-    return null;
-  };
-
-  const navigateToNPC = (id) => {
-    setDisplayMode("list");
-    setEditId(id);
-    setEncForm({ sessionNum: "", note: "" });
-    setView("detail");
-  };
 
   return (
     <div>
@@ -1674,11 +1552,7 @@ function NPCTab({ data, setData, save, setNavTarget }) {
         </div>
       )}
       {displayMode === "graph" ? (
-        <NPCGraph
-          npcs={npcs}
-          factions={data.factions || []}
-          onNodeClick={navigateToNPC}
-        />
+        <NPCGraph npcs={npcs} factions={data.factions || []} onNodeClick={navigateToNPC} />
       ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="icon">👤</div>
@@ -1688,14 +1562,28 @@ function NPCTab({ data, setData, save, setNavTarget }) {
       ) : (
         <div className="card-list">
           {filtered.map(n => {
-            const encCount = (n.encounters || []).length;
-            const connCount = (Array.isArray(n.connections) ? n.connections : []).length;
+            const isExpanded = !!expanded[n.id];
+            const encounters = n.encounters || [];
+            const conns = Array.isArray(n.connections) ? n.connections : [];
+            const matchedLoc = n.location ? (data.locations || []).find(l => l.name && l.name.toLowerCase() === n.location.toLowerCase()) : null;
+            const encCount = encounters.length;
+            const connCount = conns.length;
             const facName = factionName(n);
             const facColor = factionColor(n);
+            const ef = getEncForm(n.id);
+            const detailFields = [
+              { label: "Race", value: n.race },
+              { label: "Appearance", value: n.appearance },
+              { label: "Features", value: n.distinguishing || n.voiceMannerism },
+              { label: "Belongings", value: n.belongings },
+              { label: "Location", value: n.location, action: matchedLoc ? () => setNavTarget({ tab: "locations", id: matchedLoc.id }) : null },
+              { label: "Organisation", value: n.faction },
+            ].filter(f => f.value);
+
             return (
-              <div key={n.id} className="card" onClick={() => { setEditId(n.id); setView("detail"); }}>
+              <div key={n.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [n.id]: !e[n.id] }))}>
                 <div className="card-header">
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div className="card-title">{n.name}</div>
                     <div className="card-meta">
                       {n.race && <span>{n.race}</span>}
@@ -1710,17 +1598,90 @@ function NPCTab({ data, setData, save, setNavTarget }) {
                       {encCount > 0 && <span style={{ marginLeft: 8 }}>{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                     <Badge status={n.status} />
                     <Badge status={n.attitude} />
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", marginLeft: 4, userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
-                {(n.appearance || n.distinguishing || n.notes) && <div className="card-preview">{n.appearance || n.distinguishing || n.notes}</div>}
+                {!isExpanded && (n.appearance || n.distinguishing || n.notes) && (
+                  <div className="card-preview">{n.appearance || n.distinguishing || n.notes}</div>
+                )}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {detailFields.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        {detailFields.map(f => (
+                          <div key={f.label} className="npc-detail-field">
+                            <span className="field-label">{f.label}</span>
+                            {f.action ? (
+                              <button className="field-value link-btn" onClick={f.action}>{f.value}</button>
+                            ) : (
+                              <span className="field-value">{f.value}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {conns.length > 0 && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Connections</div>
+                        <div className="connection-list">
+                          {conns.map((c, idx) => (
+                            <div key={idx} className="connection-entry" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [c.npcId]: true }))}>
+                              <span className="connection-name">{npcName(c.npcId)}</span>
+                              <span className="connection-arrow">→</span>
+                              <span className="connection-rel">{c.relationship}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {n.notes && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Notes</div>
+                        <div className="detail-body">{n.notes}</div>
+                      </div>
+                    )}
+                    <div className="detail-section">
+                      <div className="detail-section-title">Encounter Log ({encCount})</div>
+                      {encCount > 0 ? (
+                        <div className="encounter-list">
+                          {encounters.map((enc, idx) => (
+                            <div key={idx} className="encounter-entry">
+                              <span className="encounter-session">#{enc.sessionNum || "?"}</span>
+                              <span className="encounter-note">{enc.note}</span>
+                              <button className="encounter-remove" title="Remove" onClick={() => removeEncounter(n.id, idx)}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No encounters logged yet.</div>
+                      )}
+                      <div className="encounter-add-row">
+                        <div className="form-group" style={{ maxWidth: 70, flex: "0 0 70px" }}>
+                          <label className="form-label">Sess. #</label>
+                          <input className="form-input" type="number" placeholder="#" value={ef.sessionNum} onChange={e => setEncForm(n.id, { ...ef, sessionNum: e.target.value })} />
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">What happened</label>
+                          <input className="form-input" placeholder="Short note about this encounter..." value={ef.note} onChange={e => setEncForm(n.id, { ...ef, note: e.target.value })} onKeyDown={e => { if (e.key === "Enter") addEncounter(n.id); }} />
+                        </div>
+                        <button className="btn btn-sm" style={{ marginBottom: 0, alignSelf: "flex-end" }} onClick={() => addEncounter(n.id)}>Add</button>
+                      </div>
+                    </div>
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(n)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(n.id)}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+      {confirmDel && (() => { const n = npcs.find(x => x.id === confirmDel); return n ? <ConfirmDialog message={`Delete ${n.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} /> : null; })()}
     </div>
   );
 }
@@ -2356,8 +2317,9 @@ function LocationMapImage({ url }) {
 
 // ─── LOCATION TRACKER ───
 function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
-  const [view, setView] = useState("list");
+  const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
@@ -2365,8 +2327,7 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
 
   useEffect(() => {
     if (navTarget && navTarget.tab === "locations") {
-      setEditId(navTarget.id);
-      setView("detail");
+      setExpanded(e => ({ ...e, [navTarget.id]: true }));
       setNavTarget(null);
     }
   }, [navTarget]);
@@ -2385,13 +2346,13 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
   const openNew = () => {
     setForm({ name: "", type: "", region: "", notes: "", visited: false, mapImageUrl: "", parentMapId: "" });
     setEditId(null);
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (l) => {
     setForm({ ...l });
     setEditId(l.id);
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
@@ -2405,19 +2366,16 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
       const nd = { ...data, locations: [...locations, entry], nextIds: { ...data.nextIds, location: data.nextIds.location + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
     const nd = { ...data, locations: locations.filter(l => l.id !== id) };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  const viewLoc = locations.find(l => l.id === editId);
-
-  if (view === "form") {
+  if (formOpen) {
     return (
       <div className="form-panel">
         <div className="form-title">{editId ? "Edit Location" : "New Location"}</div>
@@ -2465,43 +2423,9 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Location"}</button>
         </div>
-      </div>
-    );
-  }
-
-  if (view === "detail" && viewLoc) {
-    const l = viewLoc;
-    const parentMap = l.parentMapId ? (data.maps || []).find(m => m.id === l.parentMapId) : null;
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); }} />
-        <div className="detail-panel">
-          <div className="card-header">
-            <div className="detail-title">{l.name}</div>
-            <Badge status={l.visited ? "Visited" : "Unvisited"} />
-          </div>
-          <div className="detail-meta" style={{ marginTop: 6 }}>
-            {l.type && <span>{l.type}</span>}
-            {l.region && <span>📍 {l.region}</span>}
-            {parentMap && (
-              <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
-                View on Map →
-              </button>
-            )}
-          </div>
-          {l.mapImageUrl && (
-            <LocationMapImage url={l.mapImageUrl} />
-          )}
-          {l.notes && <div className="detail-body">{l.notes}</div>}
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(l)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(l.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete ${l.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
       </div>
     );
   }
@@ -2520,23 +2444,52 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
         </div>
       ) : (
         <div className="card-list">
-          {filtered.map(l => (
-            <div key={l.id} className="card" onClick={() => { setEditId(l.id); setView("detail"); }}>
-              <div className="card-header">
-                <div>
-                  <div className="card-title">{l.name}</div>
-                  <div className="card-meta">
-                    {l.type && <span>{l.type}</span>}
-                    {l.region && <span style={{ marginLeft: 8 }}>📍 {l.region}</span>}
+          {filtered.map(l => {
+            const isExpanded = !!expanded[l.id];
+            const parentMap = l.parentMapId ? (data.maps || []).find(m => m.id === l.parentMapId) : null;
+            return (
+              <div key={l.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [l.id]: !e[l.id] }))}>
+                <div className="card-header">
+                  <div style={{ flex: 1 }}>
+                    <div className="card-title">{l.name}</div>
+                    <div className="card-meta">
+                      {l.type && <span>{l.type}</span>}
+                      {l.region && <span style={{ marginLeft: 8 }}>📍 {l.region}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Badge status={l.visited ? "Visited" : "Unvisited"} />
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
-                <Badge status={l.visited ? "Visited" : "Unvisited"} />
+                {!isExpanded && l.notes && <div className="card-preview">{l.notes}</div>}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {(l.type || l.region || parentMap) && (
+                      <div className="detail-meta" style={{ marginBottom: 8 }}>
+                        {l.type && <span>{l.type}</span>}
+                        {l.region && <span>📍 {l.region}</span>}
+                        {parentMap && (
+                          <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
+                            View on Map →
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {l.mapImageUrl && <LocationMapImage url={l.mapImageUrl} />}
+                    {l.notes && <div className="detail-body">{l.notes}</div>}
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(l)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(l.id)}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {l.notes && <div className="card-preview">{l.notes}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+      {confirmDel && (() => { const l = locations.find(x => x.id === confirmDel); return l ? <ConfirmDialog message={`Delete ${l.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} /> : null; })()}
     </div>
   );
 }
