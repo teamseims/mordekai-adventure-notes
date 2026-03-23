@@ -1979,8 +1979,9 @@ const FACTION_COLORS = [
 
 // ─── FACTION TAB ───
 function FactionTab({ data, setData, save }) {
-  const [view, setView] = useState("list");
+  const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
@@ -1999,13 +2000,13 @@ function FactionTab({ data, setData, save }) {
   const openNew = () => {
     setForm({ name: "", description: "", color: FACTION_COLORS[0], notes: "" });
     setEditId(null);
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (f) => {
     setForm({ ...f });
     setEditId(f.id);
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
@@ -2019,7 +2020,7 @@ function FactionTab({ data, setData, save }) {
       const nd = { ...data, factions: [...factions, entry], nextIds: { ...data.nextIds, faction: (data.nextIds.faction || 1) + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
@@ -2027,12 +2028,9 @@ function FactionTab({ data, setData, save }) {
     const nd = { ...data, factions: factions.filter(f => f.id !== id), npcs: updatedNpcs };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  const viewFaction = factions.find(f => f.id === editId);
-
-  if (view === "form") {
+  if (formOpen) {
     return (
       <div className="form-panel">
         <div className="form-title">{editId ? "Edit Organisation" : "New Organisation"}</div>
@@ -2065,47 +2063,9 @@ function FactionTab({ data, setData, save }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Organisation"}</button>
         </div>
-      </div>
-    );
-  }
-
-  if (view === "detail" && viewFaction) {
-    const f = viewFaction;
-    const members = getMembers(f.id);
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); }} />
-        <div className="detail-panel">
-          <div className="faction-header-row">
-            <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 28, height: 28 }} />
-            <div className="detail-title">{f.name}</div>
-          </div>
-          {f.description && <div style={{ fontSize: "0.88rem", color: "var(--text)", marginTop: 10 }}>{f.description}</div>}
-          {f.notes && (
-            <div className="detail-section">
-              <div className="detail-section-title">Notes</div>
-              <div className="detail-body">{f.notes}</div>
-            </div>
-          )}
-          <div className="detail-section">
-            <div className="detail-section-title">Members ({members.length})</div>
-            {members.length === 0 ? (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No NPCs assigned yet. Edit an NPC and select this faction.</div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", marginTop: 4 }}>
-                {members.map(n => <span key={n.id} className="faction-member-tag">{n.name}</span>)}
-              </div>
-            )}
-          </div>
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(f)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(f.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete "${f.name}"? NPCs will be unlinked.`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
       </div>
     );
   }
@@ -2125,9 +2085,11 @@ function FactionTab({ data, setData, save }) {
       ) : (
         <div className="card-list">
           {filtered.map(f => {
-            const mc = getMembers(f.id).length;
+            const members = getMembers(f.id);
+            const mc = members.length;
+            const isExpanded = !!expanded[f.id];
             return (
-              <div key={f.id} className="card" onClick={() => { setEditId(f.id); setView("detail"); }}>
+              <div key={f.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [f.id]: !e[f.id] }))}>
                 <div className="card-header">
                   <div className="faction-header-row">
                     <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 20, height: 20 }} />
@@ -2136,8 +2098,32 @@ function FactionTab({ data, setData, save }) {
                       {f.description && <div className="card-meta">{f.description}</div>}
                     </div>
                   </div>
-                  <span className="badge" style={{ background: "var(--parchment-lighter)", color: "var(--text-dim)" }}>{mc} member{mc !== 1 ? "s" : ""}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="badge" style={{ background: "var(--parchment-lighter)", color: "var(--text-dim)" }}>{mc} member{mc !== 1 ? "s" : ""}</span>
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
+                  </div>
                 </div>
+                {!isExpanded && f.notes && <div className="card-preview">{f.notes}</div>}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {f.notes && <div className="detail-body" style={{ marginBottom: 8 }}>{f.notes}</div>}
+                    <div style={{ marginBottom: 8 }}>
+                      <div className="detail-section-title">Members ({mc})</div>
+                      {mc === 0 ? (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No NPCs assigned yet.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 4 }}>
+                          {members.map(n => <span key={n.id} className="faction-member-tag">{n.name}</span>)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(f)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(f.id)}>Delete</button>
+                    </div>
+                    {confirmDel === f.id && <ConfirmDialog message={`Delete "${f.name}"? NPCs will be unlinked.`} onConfirm={() => handleDelete(f.id)} onCancel={() => setConfirmDel(null)} />}
+                  </div>
+                )}
               </div>
             );
           })}
