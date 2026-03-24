@@ -1125,6 +1125,7 @@ function SessionTab({ data, setData, save }) {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
+  const [expanded, setExpanded] = useState({});
 
   const sessions = data.sessions || [];
 
@@ -1278,22 +1279,50 @@ function SessionTab({ data, setData, save }) {
         </div>
       ) : (
         <div className="card-list">
-          {filtered.map(s => (
-            <div key={s.id} className="card" onClick={() => { setEditId(s.id); setView("detail"); }}>
-              <div className="card-header">
-                <div>
-                  <div className="card-title">#{s.sessionNum} — {s.title || "Untitled"}</div>
-                  <div className="card-meta">{fmtDate(s.date)}</div>
+          {filtered.map(s => {
+            const isExpanded = !!expanded[s.id];
+            return (
+              <div key={s.id} className="card">
+                <div className="card-header" style={{ cursor: "pointer" }} onClick={() => { setEditId(s.id); setView("detail"); }}>
+                  <div>
+                    <div className="card-title">#{s.sessionNum} — {s.title || "Untitled"}</div>
+                    <div className="card-meta">{fmtDate(s.date)}</div>
+                  </div>
+                  <button className="btn btn-sm" title={isExpanded ? "Collapse" : "Expand"} onClick={e => { e.stopPropagation(); setExpanded(ex => ({ ...ex, [s.id]: !ex[s.id] })); }}>
+                    {isExpanded ? "▲" : "▼"}
+                  </button>
                 </div>
+                {(s.tags || []).length > 0 && (
+                  <div className="tag-list" style={{ marginTop: 4 }}>
+                    {s.tags.slice(0, 5).map(t => <span key={t} className="tag">{t}</span>)}
+                  </div>
+                )}
+                {!isExpanded && s.body && <div className="card-preview">{s.body}</div>}
+                {isExpanded && (
+                  <div style={{ marginTop: 10 }}>
+                    {(s.pcs || []).length > 0 && (
+                      <div className="tag-list" style={{ marginBottom: 8 }}>
+                        {s.pcs.map(pcId => {
+                          const pc = data.pcs.find(p => p.id === pcId);
+                          return pc ? <span key={pcId} className="tag pc-tag">{pc.name}</span> : null;
+                        })}
+                      </div>
+                    )}
+                    <div className="detail-body">{s.body || "No notes recorded."}</div>
+                    {(s.tags || []).length > 0 && (
+                      <div className="tag-list" style={{ marginTop: 8 }}>
+                        {s.tags.map(t => <span key={t} className="tag">{t}</span>)}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                      <button className="btn btn-sm" onClick={() => { setEditId(s.id); setView("detail"); }}>View</button>
+                      <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openEdit(s); }}>Edit</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {(s.tags || []).length > 0 && (
-                <div className="tag-list" style={{ marginTop: 4 }}>
-                  {s.tags.slice(0, 5).map(t => <span key={t} className="tag">{t}</span>)}
-                </div>
-              )}
-              {s.body && <div className="card-preview">{s.body}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -2153,6 +2182,7 @@ function QuestTab({ data, setData, save }) {
   const [statusFilter, setStatusFilter] = useState("All");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
+  const [expanded, setExpanded] = useState({});
 
   const quests = data.quests || [];
 
@@ -2287,20 +2317,43 @@ function QuestTab({ data, setData, save }) {
         </div>
       ) : (
         <div className="card-list">
-          {filtered.map(q => (
-            <div key={q.id} className="card" onClick={() => { setEditId(q.id); setView("detail"); }}>
-              <div className="card-header">
-                <div>
-                  <div className="card-title">{q.name}</div>
-                  <div className="card-meta">
-                    {q.giver && <span>Given by: {q.giver}</span>}
+          {filtered.map(q => {
+            const isExpanded = !!expanded[q.id];
+            return (
+              <div key={q.id} className="card">
+                <div className="card-header" style={{ cursor: "pointer" }} onClick={() => { setEditId(q.id); setView("detail"); }}>
+                  <div>
+                    <div className="card-title">{q.name}</div>
+                    <div className="card-meta">
+                      {q.giver && <span>Given by: {q.giver}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Badge status={q.status} />
+                    <button className="btn btn-sm" title={isExpanded ? "Collapse" : "Expand"} onClick={e => { e.stopPropagation(); setExpanded(ex => ({ ...ex, [q.id]: !ex[q.id] })); }}>
+                      {isExpanded ? "▲" : "▼"}
+                    </button>
                   </div>
                 </div>
-                <Badge status={q.status} />
+                {!isExpanded && q.description && <div className="card-preview">{q.description}</div>}
+                {isExpanded && (
+                  <div style={{ marginTop: 10 }}>
+                    {(q.giver || q.reward) && (
+                      <div className="detail-meta" style={{ marginBottom: 8 }}>
+                        {q.giver && <span>Given by: {q.giver}</span>}
+                        {q.reward && <span>Reward: {q.reward}</span>}
+                      </div>
+                    )}
+                    {q.description && <div className="detail-body">{q.description}</div>}
+                    <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                      <button className="btn btn-sm" onClick={() => { setEditId(q.id); setView("detail"); }}>View</button>
+                      <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openEdit(q); }}>Edit</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {q.description && <div className="card-preview">{q.description}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
