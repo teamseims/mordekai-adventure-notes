@@ -2892,6 +2892,63 @@ function PartyTab({ data, setData, save }) {
     }
   };
 
+  const CSV_FIELDS = ["name", "playerName", "race", "classSubclass", "background", "personality", "bonds", "ideals", "flaws", "notableItems", "conditions", "dmNotes"];
+
+  const csvCell = (v) => {
+    const s = (v == null ? "" : String(v));
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const handleExportCsv = () => {
+    const rows = [CSV_FIELDS.join(",")];
+    for (const pc of pcs) rows.push(CSV_FIELDS.map(f => csvCell(pc[f])).join(","));
+    const blob = new Blob([rows.join("\r\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "party.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCsv = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return;
+      // Simple CSV parser (handles quoted fields)
+      const parseRow = (line) => {
+        const fields = [];
+        let cur = "", inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (inQ) {
+            if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') inQ = false;
+            else cur += ch;
+          } else if (ch === '"') { inQ = true; }
+          else if (ch === ',') { fields.push(cur); cur = ""; }
+          else cur += ch;
+        }
+        fields.push(cur);
+        return fields;
+      };
+      const headers = parseRow(lines[0]);
+      const imported = lines.slice(1).map((line, idx) => {
+        const vals = parseRow(line);
+        const pc = { id: `pc-import-${Date.now()}-${idx}` };
+        headers.forEach((h, i) => { if (CSV_FIELDS.includes(h)) pc[h] = vals[i] || ""; });
+        return pc;
+      });
+      if (!confirm(`Import ${imported.length} character(s)? This will replace the current party.`)) return;
+      const nd = { ...data, pcs: imported };
+      setData(nd); save(nd);
+    };
+    reader.readAsText(file);
+  };
+
   const tf = (field, rows = 2) => (
     <textarea className="form-textarea" rows={rows} style={{ minHeight: "unset" }}
       value={form[field] || ""} onChange={e => setForm({ ...form, [field]: e.target.value })} />
@@ -3008,7 +3065,14 @@ function PartyTab({ data, setData, save }) {
         <p style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 12 }}>
           {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} organisations · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
         </p>
-        <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button className="btn btn-sm" onClick={handleExportCsv}>Export Party CSV</button>
+          <label className="btn btn-sm" style={{ cursor: "pointer", marginBottom: 0 }}>
+            Import Party CSV
+            <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={handleImportCsv} />
+          </label>
+          <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
+        </div>
       </div>
     </div>
   );
