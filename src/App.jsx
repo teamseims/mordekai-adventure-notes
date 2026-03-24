@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import * as d3 from "d3";
+import { supabase } from "./supabase";
 
-const STORAGE_KEY = "mordekai-notes-v1";
+const CAMPAIGN_ID = "mordekai";
 
 const DEFAULT_PCS = [
-  { id: "pc-1", name: "King Gizzard", role: "Circle of the Stars Druid", notes: "Guided by the Lizard Wizard. Shepherd of Ends, Herald of Beginnings." },
-  { id: "pc-2", name: "Lucien", role: "", notes: "" },
-  { id: "pc-3", name: "Shio", role: "", notes: "" },
-  { id: "pc-4", name: "Kazzak", role: "", notes: "" },
-  { id: "pc-5", name: "Fazula", role: "", notes: "" },
+  { id: "pc-1", name: "King Gizzard", playerName: "", race: "Variant Human", classSubclass: "Circle of the Stars Druid", background: "Guide", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "Guided by the Lizard Wizard. Shepherd of Ends, Herald of Beginnings.", notableItems: "", conditions: "" },
+  { id: "pc-2", name: "Lucien",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-3", name: "Shio",         playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-4", name: "Kazzak",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
+  { id: "pc-5", name: "Fazula",       playerName: "", race: "", classSubclass: "", background: "", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "", notableItems: "", conditions: "" },
 ];
 
 const DEFAULT_DATA = {
@@ -27,23 +29,32 @@ const ATTITUDES = ["Friendly", "Neutral", "Hostile", "Unknown"];
 const MAP_LAYERS = ["Realm", "Region", "Locale"];
 
 // ─── Storage helpers ───
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return { ...DEFAULT_DATA, ...parsed };
-    }
-  } catch (e) { /* key doesn't exist yet */ }
-  return { ...DEFAULT_DATA };
+function migratePCs(pcs) {
+  return (pcs || DEFAULT_PCS).map(p => ({
+    playerName: "", race: "", classSubclass: p.classSubclass || p.role || "",
+    background: "", personality: "", bonds: "", ideals: "", flaws: "",
+    dmNotes: p.dmNotes || p.notes || "", notableItems: "", conditions: "",
+    ...p,
+  }));
 }
 
-function saveData(data) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error("Save failed:", e);
-  }
+async function loadData() {
+  const { data, error } = await supabase
+    .from("adventure_notes")
+    .select("data")
+    .eq("id", CAMPAIGN_ID)
+    .single();
+  if (error || !data) return { ...DEFAULT_DATA };
+  const merged = { ...DEFAULT_DATA, ...data.data };
+  merged.pcs = migratePCs(merged.pcs);
+  return merged;
+}
+
+async function saveData(d) {
+  const { error } = await supabase
+    .from("adventure_notes")
+    .upsert({ id: CAMPAIGN_ID, data: d, updated_at: new Date().toISOString() });
+  if (error) console.error("Save failed:", error.message);
 }
 
 // ─── Tiny helpers ───
@@ -200,6 +211,17 @@ body, html {
   font-size: 0.75rem;
   color: var(--text-dim);
   margin-top: 3px;
+}
+.npc-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: var(--parchment-lighter);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
 }
 
 .card-preview {
@@ -660,6 +682,20 @@ body, html {
   color: var(--text-bright);
 }
 
+.npc-detail-field .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--gold);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.npc-detail-field .link-btn:hover {
+  color: var(--gold-dim);
+}
+
 /* ─── Confirm dialog ─── */
 .confirm-overlay {
   position: fixed;
@@ -895,7 +931,158 @@ body, html {
   margin: 2px;
   cursor: default;
 }
+
+/* ─── NPC Graph ─── */
+.npc-graph-container {
+  width: 100%;
+  height: 500px;
+  background: var(--parchment);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+}
+.npc-graph-container:active { cursor: grabbing; }
+.npc-graph-container svg { width: 100%; height: 100%; display: block; }
+
+.graph-tooltip {
+  position: absolute;
+  background: var(--parchment-light);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  max-width: 260px;
+}
+.graph-tooltip-name {
+  font-family: 'Cinzel Decorative', cursive;
+  font-size: 0.85rem;
+  color: var(--gold);
+  margin-bottom: 3px;
+}
+.graph-tooltip-meta {
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.graph-edge-tooltip-line {
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.78rem;
+  color: var(--text);
+  line-height: 1.7;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.graph-edge-tooltip-name { color: var(--gold); }
+.graph-edge-tooltip-arrow { color: var(--text-dim); }
+.graph-edge-tooltip-rel { color: var(--text-bright); font-style: italic; }
+
+.graph-legend {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(26,21,16,0.88);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  z-index: 5;
+  max-width: 160px;
+}
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.graph-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* view-toggle-btn alias so both selectors work */
+.view-toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 7px 13px;
+  color: var(--text-dim);
+  font-family: 'MedievalSharp', cursive;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-toggle-btn.active { background: var(--gold-dim); color: var(--parchment); }
+
+@media (max-width: 600px) {
+  .npc-graph-container { height: 350px; }
+}
 `;
+
+// ─────────────────────────────────────────────
+// Graph helpers (module-level pure functions)
+// ─────────────────────────────────────────────
+
+const FACTION_PALETTE = [
+  "#c8a84e", "#5a9b5a", "#5a8abb", "#c45050",
+  "#9b6bb5", "#d48a4e", "#4ababa", "#ba4a8a",
+  "#8ab54e", "#b5864e", "#6a6abf", "#bf6a6a",
+];
+const GRAPH_DEFAULT_COLOR = "#8a7d65";
+
+function hashFactionColor(faction) {
+  if (!faction) return GRAPH_DEFAULT_COLOR;
+  let h = 0;
+  for (let i = 0; i < faction.length; i++) h = faction.charCodeAt(i) + ((h << 5) - h);
+  return FACTION_PALETTE[Math.abs(h) % FACTION_PALETTE.length];
+}
+
+function buildGraphData(npcs) {
+  // Build a canonical edge map: sorted pair key → all directional connections
+  const edgeMap = new Map();
+  npcs.forEach(npc => {
+    (npc.connections || []).forEach(conn => {
+      if (!npcs.find(n => n.id === conn.npcId)) return;
+      const key = [npc.id, conn.npcId].sort().join("::");
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push({
+        sourceId: npc.id,
+        sourceName: npc.name,
+        targetId: conn.npcId,
+        targetName: npcs.find(n => n.id === conn.npcId)?.name || "(deleted)",
+        relationship: conn.relationship,
+      });
+    });
+  });
+
+  const links = [];
+  edgeMap.forEach((connections, key) => {
+    const [idA, idB] = key.split("::");
+    links.push({ source: idA, target: idB, connections });
+  });
+
+  const connectedIds = new Set();
+  links.forEach(l => { connectedIds.add(l.source); connectedIds.add(l.target); });
+
+  const nodes = npcs
+    .filter(n => connectedIds.has(n.id))
+    .map(n => ({
+      id: n.id,
+      name: n.name,
+      faction: n.faction || "",
+      factionId: n.factionId || "",
+      race: n.race || "",
+      status: n.status || "Unknown",
+      attitude: n.attitude || "Neutral",
+      connectionCount: links.filter(l => l.source === n.id || l.target === n.id).length,
+    }));
+
+  return { nodes, links };
+}
 
 // ─────────────────────────────────────────────
 // Components
@@ -1114,27 +1301,20 @@ function SessionTab({ data, setData, save }) {
 }
 
 // ─── NPC REGISTRY ───
-function NPCTab({ data, setData, save }) {
-  const [view, setView] = useState("list");
-  const [displayMode, setDisplayMode] = useState("list"); // "list" | "web"
+function NPCTab({ data, setData, save, setNavTarget }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [displayMode, setDisplayMode] = useState("list");
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
-  const [encForm, setEncForm] = useState({ sessionNum: "", note: "" });
+  const [encForms, setEncForms] = useState({});
   const [connForm, setConnForm] = useState({ npcId: "", relationship: "" });
-  const [webPositions, setWebPositions] = useState({});
 
   const npcs = data.npcs || [];
-
-  // Get NPC name by id
-  const npcName = (id) => {
-    const n = npcs.find(x => x.id === id);
-    return n ? n.name : "(deleted)";
-  };
-
-  // Other NPCs available for connection (exclude self)
+  const npcName = (id) => { const n = npcs.find(x => x.id === id); return n ? n.name : "(deleted)"; };
   const otherNpcs = (selfId) => npcs.filter(n => n.id !== selfId);
 
   const filtered = npcs.filter(n => {
@@ -1153,20 +1333,18 @@ function NPCTab({ data, setData, save }) {
     setForm({ name: "", location: "", faction: "", factionId: "", status: "Alive", attitude: "Neutral", race: "", appearance: "", distinguishing: "", connections: [], belongings: "", notes: "", encounters: [] });
     setEditId(null);
     setConnForm({ npcId: "", relationship: "" });
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (n) => {
-    // Migrate old string connections to array if needed
     const conns = Array.isArray(n.connections) ? n.connections : [];
     setForm({ ...n, connections: conns, distinguishing: n.distinguishing || n.voiceMannerism || "" });
     setEditId(n.id);
     setConnForm({ npcId: "", relationship: "" });
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
-    // Clean out voiceMannerism if migrated
     const saveForm = { ...form };
     delete saveForm.voiceMannerism;
     if (editId) {
@@ -1179,17 +1357,15 @@ function NPCTab({ data, setData, save }) {
       const nd = { ...data, npcs: [...npcs, entry], nextIds: { ...data.nextIds, npc: data.nextIds.npc + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
     const nd = { ...data, npcs: npcs.filter(n => n.id !== id) };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  // Connection helpers (on form, before save)
   const addConnection = () => {
     if (!connForm.npcId || !connForm.relationship) return;
     const conns = [...(form.connections || []), { npcId: connForm.npcId, relationship: connForm.relationship }];
@@ -1203,17 +1379,20 @@ function NPCTab({ data, setData, save }) {
     setForm({ ...form, connections: conns });
   };
 
-  // Encounter log helpers (on saved data, immediate save)
+  const getEncForm = (npcId) => encForms[npcId] || { sessionNum: "", note: "" };
+  const setEncForm = (npcId, val) => setEncForms(ef => ({ ...ef, [npcId]: val }));
+
   const addEncounter = (npcId) => {
-    if (!encForm.sessionNum && !encForm.note) return;
+    const ef = getEncForm(npcId);
+    if (!ef.sessionNum && !ef.note) return;
     const updated = npcs.map(n => {
       if (n.id !== npcId) return n;
-      const encounters = [...(n.encounters || []), { sessionNum: parseInt(encForm.sessionNum) || 0, note: encForm.note, addedAt: new Date().toISOString() }];
+      const encounters = [...(n.encounters || []), { sessionNum: parseInt(ef.sessionNum) || 0, note: ef.note, addedAt: new Date().toISOString() }];
       return { ...n, encounters, updatedAt: new Date().toISOString() };
     });
     const nd = { ...data, npcs: updated };
     setData(nd); save(nd);
-    setEncForm({ sessionNum: "", note: "" });
+    setEncForm(npcId, { sessionNum: "", note: "" });
   };
 
   const removeEncounter = (npcId, idx) => {
@@ -1227,12 +1406,23 @@ function NPCTab({ data, setData, save }) {
     setData(nd); save(nd);
   };
 
-  const viewNPC = npcs.find(n => n.id === editId);
+  const factionName = (n) => {
+    if (n.factionId) { const f = (data.factions || []).find(f => f.id === n.factionId); return f ? f.name : n.faction; }
+    return n.faction;
+  };
+  const factionColor = (n) => {
+    if (n.factionId) { const f = (data.factions || []).find(f => f.id === n.factionId); return f ? f.color : null; }
+    return null;
+  };
 
-  if (view === "form") {
+  const navigateToNPC = (id) => {
+    setDisplayMode("list");
+    setExpanded(e => ({ ...e, [id]: true }));
+  };
+
+  if (formOpen) {
     const conns = form.connections || [];
     const availableForConn = otherNpcs(editId).filter(n => !conns.some(c => c.npcId === n.id));
-
     return (
       <div className="form-panel">
         <div className="form-title">{editId ? "Edit NPC" : "New NPC"}</div>
@@ -1266,7 +1456,7 @@ function NPCTab({ data, setData, save }) {
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Faction / Affiliation</label>
+            <label className="form-label">Organisation / Affiliation</label>
             {(data.factions || []).length > 0 ? (
               <>
                 <select className="form-select" value={form.factionId || ""} onChange={e => {
@@ -1277,11 +1467,11 @@ function NPCTab({ data, setData, save }) {
                   {(data.factions || []).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
                 {!form.factionId && (
-                  <input className="form-input" placeholder="Custom faction / group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} style={{ marginTop: 4 }} />
+                  <input className="form-input" placeholder="Custom organisation / group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} style={{ marginTop: 4 }} />
                 )}
               </>
             ) : (
-              <input className="form-input" placeholder="Faction or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
+              <input className="form-input" placeholder="Organisation or group..." value={form.faction || ""} onChange={e => setForm({ ...form, faction: e.target.value })} />
             )}
           </div>
         </div>
@@ -1301,8 +1491,6 @@ function NPCTab({ data, setData, save }) {
             <input className="form-input" placeholder="e.g. Silver dagger, scarab amulet..." value={form.belongings || ""} onChange={e => setForm({ ...form, belongings: e.target.value })} />
           </div>
         </div>
-
-        {/* Connections */}
         <div className="form-row">
           <div className="form-group full">
             <label className="form-label">Connections to Other NPCs</label>
@@ -1338,7 +1526,6 @@ function NPCTab({ data, setData, save }) {
             )}
           </div>
         </div>
-
         <div className="form-row">
           <div className="form-group full">
             <label className="form-label">Notes</label>
@@ -1346,133 +1533,26 @@ function NPCTab({ data, setData, save }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add NPC"}</button>
         </div>
       </div>
     );
   }
 
-  if (view === "detail" && viewNPC) {
-    const n = viewNPC;
-    const encounters = n.encounters || [];
-    const conns = Array.isArray(n.connections) ? n.connections : [];
-    const detailFields = [
-      { label: "Race", value: n.race },
-      { label: "Appearance", value: n.appearance },
-      { label: "Features", value: n.distinguishing || n.voiceMannerism },
-      { label: "Belongings", value: n.belongings },
-      { label: "Location", value: n.location },
-      { label: "Faction", value: n.faction },
-    ].filter(f => f.value);
-
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); setEncForm({ sessionNum: "", note: "" }); }} />
-        <div className="detail-panel">
-          <div className="card-header">
-            <div className="detail-title">{n.name}</div>
-            <div style={{ display: "flex", gap: 4 }}>
-              <Badge status={n.status} />
-              <Badge status={n.attitude} />
-            </div>
-          </div>
-
-          {detailFields.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              {detailFields.map(f => (
-                <div key={f.label} className="npc-detail-field">
-                  <span className="field-label">{f.label}</span>
-                  <span className="field-value">{f.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {conns.length > 0 && (
-            <div className="detail-section">
-              <div className="detail-section-title">Connections</div>
-              <div className="connection-list">
-                {conns.map((c, idx) => (
-                  <div key={idx} className="connection-entry" style={{ cursor: "pointer" }} onClick={() => { setEditId(c.npcId); setEncForm({ sessionNum: "", note: "" }); }}>
-                    <span className="connection-name">{npcName(c.npcId)}</span>
-                    <span className="connection-arrow">→</span>
-                    <span className="connection-rel">{c.relationship}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {n.notes && (
-            <div className="detail-section">
-              <div className="detail-section-title">Notes</div>
-              <div className="detail-body">{n.notes}</div>
-            </div>
-          )}
-
-          <div className="detail-section">
-            <div className="detail-section-title">Encounter Log ({encounters.length})</div>
-            {encounters.length > 0 ? (
-              <div className="encounter-list">
-                {encounters.map((enc, idx) => (
-                  <div key={idx} className="encounter-entry">
-                    <span className="encounter-session">#{enc.sessionNum || "?"}</span>
-                    <span className="encounter-note">{enc.note}</span>
-                    <button className="encounter-remove" title="Remove" onClick={() => removeEncounter(n.id, idx)}>✕</button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No encounters logged yet.</div>
-            )}
-            <div className="encounter-add-row">
-              <div className="form-group" style={{ maxWidth: 70, flex: "0 0 70px" }}>
-                <label className="form-label">Sess. #</label>
-                <input className="form-input" type="number" placeholder="#" value={encForm.sessionNum} onChange={e => setEncForm({ ...encForm, sessionNum: e.target.value })} />
-              </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">What happened</label>
-                <input className="form-input" placeholder="Short note about this encounter..." value={encForm.note} onChange={e => setEncForm({ ...encForm, note: e.target.value })} onKeyDown={e => { if (e.key === "Enter") addEncounter(n.id); }} />
-              </div>
-              <button className="btn btn-sm" style={{ marginBottom: 0, alignSelf: "flex-end" }} onClick={() => addEncounter(n.id)}>Add</button>
-            </div>
-          </div>
-
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(n)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(n.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete ${n.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
-      </div>
-    );
-  }
-
-  const factionName = (n) => {
-    if (n.factionId) {
-      const f = (data.factions || []).find(f => f.id === n.factionId);
-      return f ? f.name : n.faction;
-    }
-    return n.faction;
-  };
-  const factionColor = (n) => {
-    if (n.factionId) {
-      const f = (data.factions || []).find(f => f.id === n.factionId);
-      return f ? f.color : null;
-    }
-    return null;
-  };
-
   return (
     <div>
       <div className="toolbar">
-        <input className="search-input" placeholder="Search NPCs..." value={search} onChange={e => setSearch(e.target.value)} />
+        {displayMode === "list" && (
+          <input className="search-input" placeholder="Search NPCs..." value={search} onChange={e => setSearch(e.target.value)} />
+        )}
         <div className="view-toggle">
-          <button className={displayMode === "list" ? "active" : ""} onClick={() => setDisplayMode("list")}>List</button>
-          <button className={displayMode === "web" ? "active" : ""} onClick={() => setDisplayMode("web")}>Web</button>
+          <button className={`view-toggle-btn ${displayMode === "list" ? "active" : ""}`} onClick={() => setDisplayMode("list")}>List</button>
+          <button className={`view-toggle-btn ${displayMode === "graph" ? "active" : ""}`} onClick={() => setDisplayMode("graph")}>Graph</button>
         </div>
-        <button className="btn btn-primary" onClick={openNew}>+ New NPC</button>
+        {displayMode === "list" && (
+          <button className="btn btn-primary" onClick={openNew}>+ New NPC</button>
+        )}
       </div>
       {displayMode === "list" && (
         <div className="filter-row">
@@ -1481,14 +1561,8 @@ function NPCTab({ data, setData, save }) {
           ))}
         </div>
       )}
-      {displayMode === "web" ? (
-        <NPCWeb
-          npcs={npcs}
-          factions={data.factions || []}
-          positions={webPositions}
-          setPositions={setWebPositions}
-          onSelectNpc={(id) => { setEditId(id); setEncForm({ sessionNum: "", note: "" }); setView("detail"); }}
-        />
+      {displayMode === "graph" ? (
+        <NPCGraph npcs={npcs} factions={data.factions || []} onNodeClick={navigateToNPC} />
       ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="icon">👤</div>
@@ -1498,281 +1572,409 @@ function NPCTab({ data, setData, save }) {
       ) : (
         <div className="card-list">
           {filtered.map(n => {
-            const encCount = (n.encounters || []).length;
-            const connCount = (Array.isArray(n.connections) ? n.connections : []).length;
+            const isExpanded = !!expanded[n.id];
+            const encounters = n.encounters || [];
+            const conns = Array.isArray(n.connections) ? n.connections : [];
+            const matchedLoc = n.location ? (data.locations || []).find(l => l.name && l.name.toLowerCase() === n.location.toLowerCase()) : null;
+            const encCount = encounters.length;
+            const connCount = conns.length;
             const facName = factionName(n);
             const facColor = factionColor(n);
+            const ef = getEncForm(n.id);
+            const detailFields = [
+              { label: "Race", value: n.race },
+              { label: "Appearance", value: n.appearance },
+              { label: "Features", value: n.distinguishing || n.voiceMannerism },
+              { label: "Belongings", value: n.belongings },
+              { label: "Location", value: n.location, action: matchedLoc ? () => setNavTarget({ tab: "locations", id: matchedLoc.id }) : null },
+              { label: "Organisation", value: n.faction },
+            ].filter(f => f.value);
+
             return (
-              <div key={n.id} className="card" onClick={() => { setEditId(n.id); setView("detail"); }}>
+              <div key={n.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [n.id]: !e[n.id] }))}>
                 <div className="card-header">
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div className="card-title">{n.name}</div>
-                    <div className="card-meta">
-                      {n.race && <span>{n.race}</span>}
-                      {n.location && <span style={{ marginLeft: n.race ? 8 : 0 }}>📍 {n.location}</span>}
+                    <div className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                      {n.race && <span className="npc-tag">{n.race}</span>}
+                      {n.location && <span className="npc-tag">📍 {n.location}</span>}
                       {facName && (
-                        <span style={{ marginLeft: 8 }}>
-                          {facColor && <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: facColor, marginRight: 4, verticalAlign: "middle" }} />}
+                        <span className="npc-tag" style={{ background: facColor ? facColor + "33" : undefined, borderColor: facColor || undefined, color: facColor || undefined }}>
                           ⚔ {facName}
                         </span>
                       )}
-                      {connCount > 0 && <span style={{ marginLeft: 8 }}>{connCount} link{connCount !== 1 ? "s" : ""}</span>}
-                      {encCount > 0 && <span style={{ marginLeft: 8 }}>{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
+                      {connCount > 0 && <span className="npc-tag">{connCount} link{connCount !== 1 ? "s" : ""}</span>}
+                      {encCount > 0 && <span className="npc-tag">{encCount} encounter{encCount !== 1 ? "s" : ""}</span>}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                     <Badge status={n.status} />
                     <Badge status={n.attitude} />
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", marginLeft: 4, userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
-                {(n.appearance || n.distinguishing || n.notes) && <div className="card-preview">{n.appearance || n.distinguishing || n.notes}</div>}
+                {!isExpanded && (n.appearance || n.distinguishing || n.notes) && (
+                  <div className="card-preview">{n.appearance || n.distinguishing || n.notes}</div>
+                )}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {detailFields.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        {detailFields.map(f => (
+                          <div key={f.label} className="npc-detail-field">
+                            <span className="field-label">{f.label}</span>
+                            {f.action ? (
+                              <button className="field-value link-btn" onClick={f.action}>{f.value}</button>
+                            ) : (
+                              <span className="field-value">{f.value}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {conns.length > 0 && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Connections</div>
+                        <div className="connection-list">
+                          {conns.map((c, idx) => (
+                            <div key={idx} className="connection-entry" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [c.npcId]: true }))}>
+                              <span className="connection-name">{npcName(c.npcId)}</span>
+                              <span className="connection-arrow">→</span>
+                              <span className="connection-rel">{c.relationship}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {n.notes && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Notes</div>
+                        <div className="detail-body">{n.notes}</div>
+                      </div>
+                    )}
+                    <div className="detail-section">
+                      <div className="detail-section-title">Encounter Log ({encCount})</div>
+                      {encCount > 0 ? (
+                        <div className="encounter-list">
+                          {encounters.map((enc, idx) => (
+                            <div key={idx} className="encounter-entry">
+                              <span className="encounter-session">#{enc.sessionNum || "?"}</span>
+                              <span className="encounter-note">{enc.note}</span>
+                              <button className="encounter-remove" title="Remove" onClick={() => removeEncounter(n.id, idx)}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No encounters logged yet.</div>
+                      )}
+                      <div className="encounter-add-row">
+                        <div className="form-group" style={{ maxWidth: 70, flex: "0 0 70px" }}>
+                          <label className="form-label">Sess. #</label>
+                          <input className="form-input" type="number" placeholder="#" value={ef.sessionNum} onChange={e => setEncForm(n.id, { ...ef, sessionNum: e.target.value })} />
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">What happened</label>
+                          <input className="form-input" placeholder="Short note about this encounter..." value={ef.note} onChange={e => setEncForm(n.id, { ...ef, note: e.target.value })} onKeyDown={e => { if (e.key === "Enter") addEncounter(n.id); }} />
+                        </div>
+                        <button className="btn btn-sm" style={{ marginBottom: 0, alignSelf: "flex-end" }} onClick={() => addEncounter(n.id)}>Add</button>
+                      </div>
+                    </div>
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(n)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(n.id)}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+      {confirmDel && (() => { const n = npcs.find(x => x.id === confirmDel); return n ? <ConfirmDialog message={`Delete ${n.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} /> : null; })()}
     </div>
   );
 }
 
-// ─── NPC WEB ───
-function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
-  const SVG_W = 900;
-  const SVG_H = 580;
+// ─── NPC GRAPH (D3 force-directed) ───
+function NPCGraph({ npcs, factions, onNodeClick }) {
+  const containerRef = useRef(null);
   const svgRef = useRef(null);
-  const dragRef = useRef(null);
+  const simRef = useRef(null);
+  const simNodesRef = useRef([]);
+  const simLinksRef = useRef([]);
+  const rafRef = useRef(null);
+  const zoomRef = useRef(null);
 
-  // Connection degree per NPC — drives node radius
-  const degree = {};
-  npcs.forEach(n => { degree[n.id] = 0; });
-  npcs.forEach(n => {
-    (n.connections || []).forEach(c => {
-      degree[n.id] = (degree[n.id] || 0) + 1;
-      if (degree[c.npcId] !== undefined) degree[c.npcId]++;
-    });
-  });
-  const nodeR = (id) => Math.max(14, Math.min(36, 14 + (degree[id] || 0) * 3.5));
+  const [renderTick, setRenderTick] = useState(0);
+  const [zoomT, setZoomT] = useState({ x: 0, y: 0, k: 1 });
+  const [tooltip, setTooltip] = useState(null);      // {type:"node"|"edge", x, y, data}
+  const [hovNode, setHovNode] = useState(null);
+  const [hovEdge, setHovEdge] = useState(null);       // canonical edge key
 
-  // Visual helpers
-  const getFac = (n) => n.factionId ? factions.find(f => f.id === n.factionId) || null : null;
-  const nodeFill = (n) => { const f = getFac(n); return f ? f.color : "#1a1510"; };
-  const nodeStroke = (n) => {
-    const f = getFac(n);
-    if (f) return f.color;
-    if (n.attitude === "Friendly") return "#5a9b5a";
-    if (n.attitude === "Hostile") return "#c45050";
-    if (n.attitude === "Neutral") return "#6a6055";
-    return "#c8a84e";
-  };
-  const textCol = (fill) => {
-    if (!fill || fill === "#1a1510") return "#c8a84e";
-    const r = parseInt(fill.slice(1, 3), 16);
-    const g = parseInt(fill.slice(3, 5), 16);
-    const b = parseInt(fill.slice(5, 7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.45 ? "#1a1510" : "#f5edd8";
-  };
-  const initials = (name) => {
-    const w = (name || "?").trim().split(/\s+/);
-    return w.length === 1 ? w[0].slice(0, 2).toUpperCase() : (w[0][0] + w[w.length - 1][0]).toUpperCase();
-  };
-
-  // Fruchterman-Reingold force layout
-  const runLayout = (npcList) => {
-    if (npcList.length === 0) return {};
-    const pos = {}, vel = {};
-    npcList.forEach((n, i) => {
-      const angle = (i / npcList.length) * 2 * Math.PI;
-      const r = Math.min(SVG_W, SVG_H) * 0.28 + (Math.random() - 0.5) * 40;
-      pos[n.id] = { x: SVG_W / 2 + r * Math.cos(angle), y: SVG_H / 2 + r * Math.sin(angle) };
-      vel[n.id] = { x: 0, y: 0 };
-    });
-    const edgeSet = [];
-    const seen = new Set();
-    npcList.forEach(n => {
-      (n.connections || []).forEach(c => {
-        const key = [n.id, c.npcId].sort().join("|");
-        if (!seen.has(key) && pos[c.npcId] !== undefined) { seen.add(key); edgeSet.push([n.id, c.npcId]); }
-      });
-    });
-    const k = Math.sqrt((SVG_W * SVG_H) / Math.max(npcList.length, 1)) * 0.78;
-    const ITERS = 300;
-    for (let iter = 0; iter < ITERS; iter++) {
-      const cool = Math.pow(1 - iter / ITERS, 1.2);
-      const fx = {}, fy = {};
-      npcList.forEach(n => { fx[n.id] = 0; fy[n.id] = 0; });
-      // Repulsion between every pair
-      for (let i = 0; i < npcList.length; i++) {
-        for (let j = i + 1; j < npcList.length; j++) {
-          const u = npcList[i].id, v = npcList[j].id;
-          const dx = pos[u].x - pos[v].x, dy = pos[u].y - pos[v].y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const rep = (k * k) / d;
-          fx[u] += (dx / d) * rep; fy[u] += (dy / d) * rep;
-          fx[v] -= (dx / d) * rep; fy[v] -= (dy / d) * rep;
-        }
-      }
-      // Attraction along edges
-      edgeSet.forEach(([u, v]) => {
-        const dx = pos[v].x - pos[u].x, dy = pos[v].y - pos[u].y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const att = (d * d) / k;
-        fx[u] += (dx / d) * att; fy[u] += (dy / d) * att;
-        fx[v] -= (dx / d) * att; fy[v] -= (dy / d) * att;
-      });
-      // Weak gravity toward centre keeps isolated nodes from drifting
-      npcList.forEach(n => {
-        fx[n.id] += (SVG_W / 2 - pos[n.id].x) * 0.006;
-        fy[n.id] += (SVG_H / 2 - pos[n.id].y) * 0.006;
-      });
-      // Apply with cooling + boundary clamp
-      const maxD = Math.max(2, 55 * cool);
-      npcList.forEach(n => {
-        const sp = Math.sqrt(fx[n.id] ** 2 + fy[n.id] ** 2) || 1;
-        const cap = Math.min(sp, maxD) / sp;
-        const r = nodeR(n.id);
-        pos[n.id].x = Math.max(r + 8, Math.min(SVG_W - r - 8, pos[n.id].x + fx[n.id] * cap));
-        pos[n.id].y = Math.max(r + 22, Math.min(SVG_H - r - 22, pos[n.id].y + fy[n.id] * cap));
-      });
+  // Resolve faction colour: prefer Factions-tab colour, fall back to hash
+  const getFactionColor = useCallback((node) => {
+    if (node.factionId) {
+      const f = factions.find(f => f.id === node.factionId);
+      if (f) return f.color;
     }
-    return pos;
-  };
+    return hashFactionColor(node.faction);
+  }, [factions]);
 
-  // Run simulation when positions empty (first load or after re-simulate click)
-  const isEmpty = Object.keys(positions).length === 0;
-  useEffect(() => {
-    if (npcs.length > 0 && isEmpty) setPositions(runLayout(npcs));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [npcs.map(n => n.id).join(","), isEmpty]);
+  // Change key: rebuild + restart simulation whenever NPC list or connections change
+  const npcKey = npcs.map(n => n.id + "|" + (n.connections || []).length).join(",");
 
-  // Slot in any newly added NPC near the centre
+  // ── Zoom — set up once on mount ──
   useEffect(() => {
-    if (!isEmpty) {
-      const missing = npcs.filter(n => !positions[n.id]);
-      if (missing.length > 0) {
-        setPositions(prev => {
-          const next = { ...prev };
-          missing.forEach(n => { next[n.id] = { x: SVG_W / 2 + (Math.random() - 0.5) * 80, y: SVG_H / 2 + (Math.random() - 0.5) * 80 }; });
-          return next;
-        });
-      }
+    if (!svgRef.current) return;
+    const zoom = d3.zoom()
+      .scaleExtent([0.15, 4])
+      .on("zoom", (e) => setZoomT({ x: e.transform.x, y: e.transform.y, k: e.transform.k }));
+    zoomRef.current = zoom;
+    d3.select(svgRef.current).call(zoom);
+    return () => { d3.select(svgRef.current).on(".zoom", null); };
+  }, []);
+
+  // ── Simulation — restart whenever NPC data changes ──
+  useEffect(() => {
+    const { nodes, links } = buildGraphData(npcs);
+
+    // Stop previous simulation and cancel any pending rAF
+    if (simRef.current) simRef.current.stop();
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+
+    if (nodes.length === 0) {
+      simNodesRef.current = [];
+      simLinksRef.current = [];
+      setRenderTick(t => t + 1);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [npcs.map(n => n.id).join(",")]);
 
-  // Drag helpers
-  const getSVGPt = (cx, cy) => {
     const svg = svgRef.current;
-    if (!svg) return { x: 0, y: 0 };
-    const rect = svg.getBoundingClientRect();
-    return { x: ((cx - rect.left) / rect.width) * SVG_W, y: ((cy - rect.top) / rect.height) * SVG_H };
-  };
-  const onPtrDown = (e, id) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); dragRef.current = { id, moved: false }; };
-  const onPtrMove = (e) => {
-    if (!dragRef.current) return;
-    const pt = getSVGPt(e.clientX, e.clientY);
-    dragRef.current.moved = true;
-    const r = nodeR(dragRef.current.id);
-    setPositions(prev => ({ ...prev, [dragRef.current.id]: {
-      x: Math.max(r + 8, Math.min(SVG_W - r - 8, pt.x)),
-      y: Math.max(r + 22, Math.min(SVG_H - r - 22, pt.y)),
-    }}));
-  };
-  const onPtrUp = (e, id) => { if (dragRef.current && !dragRef.current.moved) onSelectNpc(id); dragRef.current = null; };
+    const w = svg ? (svg.clientWidth || 800) : 800;
+    const h = svg ? (svg.clientHeight || 500) : 500;
 
-  // Deduplicated edges
-  const edges = [];
-  const edgeKeys = new Set();
-  npcs.forEach(n => {
-    (n.connections || []).forEach(c => {
-      if (!positions[n.id] || !positions[c.npcId]) return;
-      const key = [n.id, c.npcId].sort().join("|");
-      if (!edgeKeys.has(key)) { edgeKeys.add(key); edges.push({ from: n.id, to: c.npcId, label: c.relationship }); }
+    // Preserve positions of nodes that already exist (data update, not first load)
+    const prevPos = {};
+    simNodesRef.current.forEach(n => { prevPos[n.id] = { x: n.x, y: n.y }; });
+
+    const simNodes = nodes.map(n => ({
+      ...n,
+      x: prevPos[n.id]?.x ?? w / 2 + (Math.random() - 0.5) * 200,
+      y: prevPos[n.id]?.y ?? h / 2 + (Math.random() - 0.5) * 200,
+    }));
+    const simLinks = links.map(l => ({ ...l }));
+
+    simNodesRef.current = simNodes;
+    simLinksRef.current = simLinks;
+
+    const sim = d3.forceSimulation(simNodes)
+      .force("link", d3.forceLink(simLinks).id(d => d.id).distance(120))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(w / 2, h / 2))
+      .force("collide", d3.forceCollide().radius(d => Math.max(10, Math.min(28, 10 + d.connectionCount * 3)) + 8));
+
+    simRef.current = sim;
+
+    const scheduleRender = () => {
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        setRenderTick(t => t + 1);
+      });
+    };
+
+    sim.on("tick", scheduleRender).on("end", () => setRenderTick(t => t + 1));
+
+    return () => {
+      sim.stop();
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [npcKey]);
+
+  // ── Tooltip helpers ──
+  const getTooltipPos = (x, y) => {
+    const c = containerRef.current;
+    if (!c) return { left: x + 12, top: y + 12 };
+    const { width, height } = c.getBoundingClientRect();
+    return {
+      left: Math.min(x + 14, width - 268),
+      top: Math.min(y + 14, height - 120),
+    };
+  };
+
+  // ── Legend ── (factions visible in current graph)
+  const factionLegend = useMemo(() => {
+    const seen = new Map();
+    simNodesRef.current.forEach(n => {
+      const key = n.factionId || n.faction;
+      if (key && !seen.has(key)) seen.set(key, { label: n.faction || "", color: getFactionColor(n) });
     });
-  });
+    return [...seen.values()].filter(f => f.label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderTick, getFactionColor]);
 
+  // ── Empty states ──
   if (npcs.length === 0) return (
     <div className="empty-state" style={{ marginTop: 20 }}>
-      <div className="icon">🕸</div><p>No NPCs to show in the web yet.</p>
+      <div className="icon">👤</div>
+      <p>No NPCs yet. Add some NPCs first.</p>
     </div>
   );
 
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button className="btn btn-sm" onClick={() => setPositions({})}>↺ Re-simulate</button>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-        className="npc-web-svg"
-        style={{ background: "var(--parchment)", minHeight: 400 }}
-        onPointerMove={onPtrMove}
-        onPointerUp={() => { dragRef.current = null; }}
-        onPointerLeave={() => { dragRef.current = null; }}
-      >
-        {/* Edge lines — drawn first so nodes render on top */}
-        {edges.map((edge, i) => {
-          const f = positions[edge.from], t = positions[edge.to];
-          if (!f || !t) return null;
-          const mx = (f.x + t.x) / 2, my = (f.y + t.y) / 2;
-          return (
-            <g key={i}>
-              <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#5a4d3a" strokeWidth="1" opacity="0.5" />
-              {edge.label && (
-                <text x={mx} y={my - 4} textAnchor="middle" fontSize="7.5" fill="#7a6d58" fontFamily="'MedievalSharp', cursive">
-                  {edge.label.length > 22 ? edge.label.slice(0, 20) + "…" : edge.label}
-                </text>
-              )}
-            </g>
-          );
-        })}
+  const nodes = simNodesRef.current;
+  const links = simLinksRef.current;
 
-        {/* Nodes */}
-        {npcs.map(npc => {
-          const pos = positions[npc.id];
-          if (!pos) return null;
-          const fill = nodeFill(npc);
-          const stroke = nodeStroke(npc);
-          const tc = textCol(fill);
-          const r = nodeR(npc.id);
-          const isDead = npc.status === "Dead";
-          const firstName = npc.name.split(" ")[0];
-          const label = firstName.length > 10 ? firstName.slice(0, 9) + "…" : firstName;
-          return (
-            <g key={npc.id} transform={`translate(${pos.x},${pos.y})`}
-              onPointerDown={e => onPtrDown(e, npc.id)}
-              onPointerMove={onPtrMove}
-              onPointerUp={e => onPtrUp(e, npc.id)}
-              style={{ cursor: "pointer", userSelect: "none" }}
-              opacity={isDead ? 0.5 : 1}
-            >
-              {/* Parchment halo creates visual separation between edge lines and node border */}
-              <circle r={r + 3} fill="var(--parchment)" />
-              {/* Main filled circle — faction colour or dark default */}
-              <circle r={r} fill={fill} stroke={stroke} strokeWidth="2.5" />
-              {/* Initials */}
-              <text textAnchor="middle" dy="0.35em"
-                fontSize={Math.max(8, Math.round(r * 0.50))}
-                fill={tc} fontWeight="bold"
-                fontFamily="'Cinzel Decorative', cursive"
-                style={{ pointerEvents: "none" }}>
-                {initials(npc.name)}
-              </text>
-              {/* Name label below */}
-              <text textAnchor="middle" y={r + 14} fontSize="9" fill="var(--text-dim)"
-                fontFamily="'MedievalSharp', cursive" style={{ pointerEvents: "none" }}>
-                {label}
-              </text>
-              {isDead && (
-                <text textAnchor="middle" y={-r - 6} fontSize="11" fill="#c45050" style={{ pointerEvents: "none" }}>✝</text>
-              )}
-            </g>
-          );
-        })}
+  if (nodes.length === 0) return (
+    <div className="empty-state" style={{ marginTop: 20 }}>
+      <div className="icon">🕸</div>
+      <p>No connections to visualize.</p>
+      <p style={{ fontSize: "0.78rem", marginTop: 4 }}>Add connections between NPCs to see the network graph.</p>
+    </div>
+  );
+
+  const { x: tx, y: ty, k: tk } = zoomT;
+
+  return (
+    <div ref={containerRef} className="npc-graph-container">
+      <svg ref={svgRef}>
+        <g transform={`translate(${tx},${ty}) scale(${tk})`}>
+
+          {/* ── Edges ── */}
+          {links.map((link) => {
+            const src = typeof link.source === "object" ? link.source : null;
+            const tgt = typeof link.target === "object" ? link.target : null;
+            if (!src || !tgt || src.x == null) return null;
+            const edgeKey = [src.id, tgt.id].sort().join("::");
+            const isHov = hovEdge === edgeKey;
+            return (
+              <g key={edgeKey}>
+                {/* Visible line */}
+                <line
+                  x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                  stroke={isHov ? "rgba(200,168,78,0.65)" : "rgba(200,168,78,0.25)"}
+                  strokeWidth={isHov ? 2.5 : 1.5}
+                  style={{ pointerEvents: "none" }}
+                />
+                {/* Wide transparent hit-area — makes thin lines easy to hover */}
+                <line
+                  x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                  stroke="transparent" strokeWidth={12}
+                  style={{ cursor: "pointer" }}
+                  onMouseEnter={(e) => {
+                    setHovEdge(edgeKey);
+                    const rect = containerRef.current.getBoundingClientRect();
+                    setTooltip({ type: "edge", x: e.clientX - rect.left, y: e.clientY - rect.top, data: link });
+                  }}
+                  onMouseMove={(e) => {
+                    if (tooltip?.type === "edge") {
+                      const rect = containerRef.current.getBoundingClientRect();
+                      setTooltip(t => ({ ...t, x: e.clientX - rect.left, y: e.clientY - rect.top }));
+                    }
+                  }}
+                  onMouseLeave={() => { setHovEdge(null); setTooltip(null); }}
+                />
+              </g>
+            );
+          })}
+
+          {/* ── Nodes ── */}
+          {nodes.map(node => {
+            if (node.x == null) return null;
+            const isHov = hovNode === node.id;
+            const color = getFactionColor(node);
+            const r = Math.max(10, Math.min(28, 10 + node.connectionCount * 3)) + (isHov ? 3 : 0);
+            // Initials: first letter of first + last word
+            const words = node.name.trim().split(/\s+/);
+            const inits = words.length === 1
+              ? words[0].slice(0, 2).toUpperCase()
+              : (words[0][0] + words[words.length - 1][0]).toUpperCase();
+            // Auto-contrast text color against faction fill
+            const rgb = color.match(/[\da-f]{2}/gi) || [];
+            const lum = rgb.length === 3
+              ? (0.299 * parseInt(rgb[0], 16) + 0.587 * parseInt(rgb[1], 16) + 0.114 * parseInt(rgb[2], 16)) / 255
+              : 0;
+            const tc = lum > 0.55 ? "#1a1510" : "#f5edd8";
+            const firstName = node.name.split(" ")[0];
+            const label = firstName.length > 13 ? firstName.slice(0, 12) + "…" : firstName;
+            return (
+              <g key={node.id}
+                transform={`translate(${node.x},${node.y})`}
+                style={{ cursor: "pointer" }}
+                onClick={() => onNodeClick(node.id)}
+                onMouseEnter={(e) => {
+                  setHovNode(node.id);
+                  const rect = containerRef.current.getBoundingClientRect();
+                  setTooltip({
+                    type: "node",
+                    x: node.x * tk + tx,
+                    y: node.y * tk + ty,
+                    data: node,
+                  });
+                }}
+                onMouseLeave={() => { setHovNode(null); setTooltip(null); }}
+              >
+                {/* Filled circle — faction colour fill, faction colour stroke */}
+                <circle r={r} fill={color}
+                  stroke={isHov ? "#e8c84e" : color}
+                  strokeWidth={isHov ? 3 : 2} />
+                {/* Initials */}
+                <text textAnchor="middle" dy="0.35em"
+                  fontSize={Math.max(8, Math.round(r * 0.52))}
+                  fill={tc} fontWeight="bold"
+                  fontFamily="'Cinzel Decorative', cursive"
+                  style={{ pointerEvents: "none" }}>
+                  {inits}
+                </text>
+                {/* Name label below */}
+                <text textAnchor="middle" y={r + 13} fontSize={9}
+                  fill="#8a7d65" fontFamily="'MedievalSharp', cursive"
+                  style={{ pointerEvents: "none" }}>
+                  {label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
-      <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", textAlign: "center", marginTop: 6 }}>
-        Drag to rearrange · Click to view · Size = connections · Colour = faction
-      </div>
+
+      {/* ── Tooltip ── */}
+      {tooltip && (
+        <div className="graph-tooltip" style={{ position: "absolute", ...getTooltipPos(tooltip.x, tooltip.y) }}>
+          {tooltip.type === "node" ? (
+            <>
+              <div className="graph-tooltip-name">{tooltip.data.name}</div>
+              <div className="graph-tooltip-meta">
+                {[tooltip.data.race, tooltip.data.status].filter(Boolean).join(" · ")}
+                {tooltip.data.faction && <><br />{tooltip.data.faction}</>}
+                <br />{tooltip.data.connectionCount} connection{tooltip.data.connectionCount !== 1 ? "s" : ""}
+              </div>
+            </>
+          ) : (
+            (tooltip.data.connections || []).map((conn, i) => (
+              <div key={i} className="graph-edge-tooltip-line">
+                <span className="graph-edge-tooltip-name">{conn.sourceName}</span>
+                <span className="graph-edge-tooltip-arrow">→</span>
+                <span className="graph-edge-tooltip-rel">{conn.relationship}</span>
+                <span className="graph-edge-tooltip-arrow">→</span>
+                <span className="graph-edge-tooltip-name">{conn.targetName}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Legend (only shown when ≥2 factions) ── */}
+      {factionLegend.length > 1 && (
+        <div className="graph-legend">
+          {factionLegend.map(f => (
+            <div key={f.label} className="graph-legend-item">
+              <div className="graph-legend-dot" style={{ background: f.color }} />
+              {f.label}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1781,13 +1983,17 @@ function NPCWeb({ npcs, factions, positions, setPositions, onSelectNpc }) {
 const FACTION_COLORS = [
   "#c8a84e", "#8b3a3a", "#3a5a7b", "#3a6b3a",
   "#6b3a7b", "#7b5a3a", "#4a7b7b", "#7b7b3a",
-  "#8a7d65", "#5a3a7b",
+  "#8a7d65", "#5a3a7b", "#b05a2a", "#2a6b5a",
+  "#7b2a4a", "#2a4a7b", "#6b6b2a", "#4a2a6b",
+  "#9a4a4a", "#2a7b7b", "#7b4a6b", "#4a6b4a",
+  "#1a1a1a", "#3a3a3a", "#5a5a5a", "#ffffff",
 ];
 
 // ─── FACTION TAB ───
 function FactionTab({ data, setData, save }) {
-  const [view, setView] = useState("list");
+  const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
@@ -1806,13 +2012,13 @@ function FactionTab({ data, setData, save }) {
   const openNew = () => {
     setForm({ name: "", description: "", color: FACTION_COLORS[0], notes: "" });
     setEditId(null);
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (f) => {
     setForm({ ...f });
     setEditId(f.id);
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
@@ -1826,7 +2032,7 @@ function FactionTab({ data, setData, save }) {
       const nd = { ...data, factions: [...factions, entry], nextIds: { ...data.nextIds, faction: (data.nextIds.faction || 1) + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
@@ -1834,19 +2040,16 @@ function FactionTab({ data, setData, save }) {
     const nd = { ...data, factions: factions.filter(f => f.id !== id), npcs: updatedNpcs };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  const viewFaction = factions.find(f => f.id === editId);
-
-  if (view === "form") {
+  if (formOpen) {
     return (
       <div className="form-panel">
-        <div className="form-title">{editId ? "Edit Faction" : "New Faction"}</div>
+        <div className="form-title">{editId ? "Edit Organisation" : "New Organisation"}</div>
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Name</label>
-            <input className="form-input" placeholder="Faction name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <input className="form-input" placeholder="Organisation name..." value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
           </div>
         </div>
         <div className="form-row">
@@ -1872,47 +2075,9 @@ function FactionTab({ data, setData, save }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Faction"}</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Organisation"}</button>
         </div>
-      </div>
-    );
-  }
-
-  if (view === "detail" && viewFaction) {
-    const f = viewFaction;
-    const members = getMembers(f.id);
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); }} />
-        <div className="detail-panel">
-          <div className="faction-header-row">
-            <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 28, height: 28 }} />
-            <div className="detail-title">{f.name}</div>
-          </div>
-          {f.description && <div style={{ fontSize: "0.88rem", color: "var(--text)", marginTop: 10 }}>{f.description}</div>}
-          {f.notes && (
-            <div className="detail-section">
-              <div className="detail-section-title">Notes</div>
-              <div className="detail-body">{f.notes}</div>
-            </div>
-          )}
-          <div className="detail-section">
-            <div className="detail-section-title">Members ({members.length})</div>
-            {members.length === 0 ? (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No NPCs assigned yet. Edit an NPC and select this faction.</div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", marginTop: 4 }}>
-                {members.map(n => <span key={n.id} className="faction-member-tag">{n.name}</span>)}
-              </div>
-            )}
-          </div>
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(f)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(f.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete "${f.name}"? NPCs will be unlinked.`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
       </div>
     );
   }
@@ -1920,21 +2085,23 @@ function FactionTab({ data, setData, save }) {
   return (
     <div>
       <div className="toolbar">
-        <input className="search-input" placeholder="Search factions..." value={search} onChange={e => setSearch(e.target.value)} />
-        <button className="btn btn-primary" onClick={openNew}>+ New Faction</button>
+        <input className="search-input" placeholder="Search organisations..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button className="btn btn-primary" onClick={openNew}>+ New Organisation</button>
       </div>
       {filtered.length === 0 ? (
         <div className="empty-state">
           <div className="icon">⚔</div>
-          <p>{search ? "No factions match your search." : "No factions created yet."}</p>
-          {!search && <button className="btn btn-primary" onClick={openNew}>Create First Faction</button>}
+          <p>{search ? "No organisations match your search." : "No organisations created yet."}</p>
+          {!search && <button className="btn btn-primary" onClick={openNew}>Create First Organisation</button>}
         </div>
       ) : (
         <div className="card-list">
           {filtered.map(f => {
-            const mc = getMembers(f.id).length;
+            const members = getMembers(f.id);
+            const mc = members.length;
+            const isExpanded = !!expanded[f.id];
             return (
-              <div key={f.id} className="card" onClick={() => { setEditId(f.id); setView("detail"); }}>
+              <div key={f.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [f.id]: !e[f.id] }))}>
                 <div className="card-header">
                   <div className="faction-header-row">
                     <div className="faction-swatch" style={{ background: f.color || "var(--gold-dim)", width: 20, height: 20 }} />
@@ -1943,8 +2110,32 @@ function FactionTab({ data, setData, save }) {
                       {f.description && <div className="card-meta">{f.description}</div>}
                     </div>
                   </div>
-                  <span className="badge" style={{ background: "var(--parchment-lighter)", color: "var(--text-dim)" }}>{mc} member{mc !== 1 ? "s" : ""}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="badge" style={{ background: "var(--parchment-lighter)", color: "var(--text-dim)" }}>{mc} member{mc !== 1 ? "s" : ""}</span>
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
+                  </div>
                 </div>
+                {!isExpanded && f.notes && <div className="card-preview">{f.notes}</div>}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {f.notes && <div className="detail-body" style={{ marginBottom: 8 }}>{f.notes}</div>}
+                    <div style={{ marginBottom: 8 }}>
+                      <div className="detail-section-title">Members ({mc})</div>
+                      {mc === 0 ? (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-dim)", fontStyle: "italic" }}>No NPCs assigned yet.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 4 }}>
+                          {members.map(n => <span key={n.id} className="faction-member-tag">{n.name}</span>)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(f)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(f.id)}>Delete</button>
+                    </div>
+                    {confirmDel === f.id && <ConfirmDialog message={`Delete "${f.name}"? NPCs will be unlinked.`} onConfirm={() => handleDelete(f.id)} onCancel={() => setConfirmDel(null)} />}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2124,8 +2315,9 @@ function LocationMapImage({ url }) {
 
 // ─── LOCATION TRACKER ───
 function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
-  const [view, setView] = useState("list");
+  const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({});
   const [confirmDel, setConfirmDel] = useState(null);
@@ -2133,8 +2325,7 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
 
   useEffect(() => {
     if (navTarget && navTarget.tab === "locations") {
-      setEditId(navTarget.id);
-      setView("detail");
+      setExpanded(e => ({ ...e, [navTarget.id]: true }));
       setNavTarget(null);
     }
   }, [navTarget]);
@@ -2153,13 +2344,13 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
   const openNew = () => {
     setForm({ name: "", type: "", region: "", notes: "", visited: false, mapImageUrl: "", parentMapId: "" });
     setEditId(null);
-    setView("form");
+    setFormOpen(true);
   };
 
   const openEdit = (l) => {
     setForm({ ...l });
     setEditId(l.id);
-    setView("form");
+    setFormOpen(true);
   };
 
   const handleSave = () => {
@@ -2173,19 +2364,16 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
       const nd = { ...data, locations: [...locations, entry], nextIds: { ...data.nextIds, location: data.nextIds.location + 1 } };
       setData(nd); save(nd);
     }
-    setView("list");
+    setFormOpen(false);
   };
 
   const handleDelete = (id) => {
     const nd = { ...data, locations: locations.filter(l => l.id !== id) };
     setData(nd); save(nd);
     setConfirmDel(null);
-    setView("list");
   };
 
-  const viewLoc = locations.find(l => l.id === editId);
-
-  if (view === "form") {
+  if (formOpen) {
     return (
       <div className="form-panel">
         <div className="form-title">{editId ? "Edit Location" : "New Location"}</div>
@@ -2233,43 +2421,9 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn" onClick={() => setView(editId ? "detail" : "list")}>Cancel</button>
+          <button className="btn" onClick={() => setFormOpen(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave}>{editId ? "Save Changes" : "Add Location"}</button>
         </div>
-      </div>
-    );
-  }
-
-  if (view === "detail" && viewLoc) {
-    const l = viewLoc;
-    const parentMap = l.parentMapId ? (data.maps || []).find(m => m.id === l.parentMapId) : null;
-    return (
-      <div>
-        <BackButton onClick={() => { setView("list"); setEditId(null); }} />
-        <div className="detail-panel">
-          <div className="card-header">
-            <div className="detail-title">{l.name}</div>
-            <Badge status={l.visited ? "Visited" : "Unvisited"} />
-          </div>
-          <div className="detail-meta" style={{ marginTop: 6 }}>
-            {l.type && <span>{l.type}</span>}
-            {l.region && <span>📍 {l.region}</span>}
-            {parentMap && (
-              <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
-                View on Map →
-              </button>
-            )}
-          </div>
-          {l.mapImageUrl && (
-            <LocationMapImage url={l.mapImageUrl} />
-          )}
-          {l.notes && <div className="detail-body">{l.notes}</div>}
-          <div className="detail-actions">
-            <button className="btn" onClick={() => openEdit(l)}>Edit</button>
-            <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(l.id)}>Delete</button>
-          </div>
-        </div>
-        {confirmDel && <ConfirmDialog message={`Delete ${l.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} />}
       </div>
     );
   }
@@ -2288,23 +2442,48 @@ function LocationTab({ data, setData, save, navTarget, setNavTarget }) {
         </div>
       ) : (
         <div className="card-list">
-          {filtered.map(l => (
-            <div key={l.id} className="card" onClick={() => { setEditId(l.id); setView("detail"); }}>
-              <div className="card-header">
-                <div>
-                  <div className="card-title">{l.name}</div>
-                  <div className="card-meta">
-                    {l.type && <span>{l.type}</span>}
-                    {l.region && <span style={{ marginLeft: 8 }}>📍 {l.region}</span>}
+          {filtered.map(l => {
+            const isExpanded = !!expanded[l.id];
+            const parentMap = l.parentMapId ? (data.maps || []).find(m => m.id === l.parentMapId) : null;
+            return (
+              <div key={l.id} className="card" style={{ cursor: "pointer" }} onClick={() => setExpanded(e => ({ ...e, [l.id]: !e[l.id] }))}>
+                <div className="card-header">
+                  <div style={{ flex: 1 }}>
+                    <div className="card-title">{l.name}</div>
+                    <div className="card-meta">
+                      {l.type && <span>{l.type}</span>}
+                      {l.region && <span style={{ marginLeft: 8 }}>📍 {l.region}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Badge status={l.visited ? "Visited" : "Unvisited"} />
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
-                <Badge status={l.visited ? "Visited" : "Unvisited"} />
+                {!isExpanded && l.notes && <div className="card-preview">{l.notes}</div>}
+                {isExpanded && (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--border)", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    {parentMap && (
+                      <div className="detail-meta" style={{ marginBottom: 8 }}>
+                        <button className="back-link" style={{ marginBottom: 0 }} onClick={() => setNavTarget && setNavTarget({ tab: "maps", id: parentMap.id })}>
+                          View on Map →
+                        </button>
+                      </div>
+                    )}
+                    {l.mapImageUrl && <LocationMapImage url={l.mapImageUrl} />}
+                    {l.notes && <div className="detail-body">{l.notes}</div>}
+                    <div className="detail-actions">
+                      <button className="btn" onClick={() => openEdit(l)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setConfirmDel(l.id)}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {l.notes && <div className="card-preview">{l.notes}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+      {confirmDel && (() => { const l = locations.find(x => x.id === confirmDel); return l ? <ConfirmDialog message={`Delete ${l.name}?`} onConfirm={() => handleDelete(confirmDel)} onCancel={() => setConfirmDel(null)} /> : null; })()}
     </div>
   );
 }
@@ -2682,14 +2861,18 @@ function MapTab({ data, setData, save, navTarget, setNavTarget }) {
   );
 }
 
-// ─── PARTY TAB (bonus settings-like) ───
+// ─── PARTY TAB ───
 function PartyTab({ data, setData, save }) {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({});
+  const [expanded, setExpanded] = useState({});
 
   const pcs = data.pcs || [];
 
-  const openEdit = (pc) => {
+  const toggleExpand = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+
+  const openEdit = (pc, e) => {
+    e.stopPropagation();
     setForm({ ...pc });
     setEditId(pc.id);
   };
@@ -2708,57 +2891,187 @@ function PartyTab({ data, setData, save }) {
     }
   };
 
+  const CSV_FIELDS = ["name", "playerName", "race", "classSubclass", "background", "personality", "bonds", "ideals", "flaws", "notableItems", "conditions", "dmNotes"];
+
+  const csvCell = (v) => {
+    const s = (v == null ? "" : String(v));
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const handleExportCsv = () => {
+    const rows = [CSV_FIELDS.join(",")];
+    for (const pc of pcs) rows.push(CSV_FIELDS.map(f => csvCell(pc[f])).join(","));
+    const blob = new Blob([rows.join("\r\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "party.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCsv = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return;
+      // Simple CSV parser (handles quoted fields)
+      const parseRow = (line) => {
+        const fields = [];
+        let cur = "", inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (inQ) {
+            if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') inQ = false;
+            else cur += ch;
+          } else if (ch === '"') { inQ = true; }
+          else if (ch === ',') { fields.push(cur); cur = ""; }
+          else cur += ch;
+        }
+        fields.push(cur);
+        return fields;
+      };
+      const headers = parseRow(lines[0]);
+      const imported = lines.slice(1).map((line, idx) => {
+        const vals = parseRow(line);
+        const pc = { id: `pc-import-${Date.now()}-${idx}` };
+        headers.forEach((h, i) => { if (CSV_FIELDS.includes(h)) pc[h] = vals[i] || ""; });
+        return pc;
+      });
+      if (!confirm(`Import ${imported.length} character(s)? This will replace the current party.`)) return;
+      const nd = { ...data, pcs: imported };
+      setData(nd); save(nd);
+    };
+    reader.readAsText(file);
+  };
+
+  const tf = (field, rows = 2) => (
+    <textarea className="form-textarea" rows={rows} style={{ minHeight: "unset" }}
+      value={form[field] || ""} onChange={e => setForm({ ...form, [field]: e.target.value })} />
+  );
+
   return (
     <div>
       <div className="settings-section">
         <div className="settings-title">The Party</div>
         <div className="card-list">
-          {pcs.map(pc => (
-            editId === pc.id ? (
-              <div key={pc.id} className="form-panel" style={{ margin: 0 }}>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Name</label>
-                    <input className="form-input" value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+          {pcs.map(pc => {
+            if (editId === pc.id) {
+              return (
+                <div key={pc.id} className="form-panel" style={{ margin: 0 }}>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Name</label>
+                      <input className="form-input" value={form.name || ""} onChange={e => setForm({ ...form, name: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Player Name</label>
+                      <input className="form-input" value={form.playerName || ""} onChange={e => setForm({ ...form, playerName: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Role / Class</label>
-                    <input className="form-input" value={form.role || ""} onChange={e => setForm({ ...form, role: e.target.value })} />
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Race / Species</label>
+                      <input className="form-input" value={form.race || ""} onChange={e => setForm({ ...form, race: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Class &amp; Subclass</label>
+                      <input className="form-input" value={form.classSubclass || ""} onChange={e => setForm({ ...form, classSubclass: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Background</label>
+                      <input className="form-input" value={form.background || ""} onChange={e => setForm({ ...form, background: e.target.value })} />
+                    </div>
+                    <div className="form-group" />
+                  </div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Personality Traits</label>{tf("personality")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Bonds / Motivations</label>{tf("bonds")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Ideals</label>{tf("ideals")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Flaws / Secrets</label>{tf("flaws")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Notable Items</label>{tf("notableItems")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">Conditions / Status</label>{tf("conditions")}</div></div>
+                  <div className="form-row"><div className="form-group full"><label className="form-label">DM Notes</label>{tf("dmNotes", 4)}</div></div>
+                  <div className="form-actions">
+                    <button className="btn" onClick={() => setEditId(null)}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleSave}>Save</button>
                   </div>
                 </div>
-                <div className="form-row">
-                  <div className="form-group full">
-                    <label className="form-label">Notes</label>
-                    <textarea className="form-textarea" style={{ minHeight: 50 }} value={form.notes || ""} onChange={e => setForm({ ...form, notes: e.target.value })} />
-                  </div>
-                </div>
-                <div className="form-actions">
-                  <button className="btn btn-sm" onClick={() => setEditId(null)}>Cancel</button>
-                  <button className="btn btn-primary btn-sm" onClick={handleSave}>Save</button>
-                </div>
-              </div>
-            ) : (
-              <div key={pc.id} className="card" onClick={() => openEdit(pc)}>
+              );
+            }
+
+            const classSubclass = pc.classSubclass || pc.role || "";
+            const dmNotes = pc.dmNotes || pc.notes || "";
+            const identity = [pc.race, classSubclass].filter(Boolean).join(" · ");
+            const hasPersonality = pc.personality || pc.bonds || pc.ideals || pc.flaws;
+            const hasCampaign = pc.notableItems || pc.conditions || dmNotes;
+            const isExpanded = !!expanded[pc.id];
+
+            return (
+              <div key={pc.id} className="card" style={{ cursor: "pointer" }} onClick={() => toggleExpand(pc.id)}>
                 <div className="card-header">
-                  <div>
-                    <div className="card-title">{pc.name}</div>
-                    {pc.role && <div className="card-meta">{pc.role}</div>}
+                  <div style={{ flex: 1 }}>
+                    <div className="card-title" style={{ fontFamily: "'Cinzel Decorative', serif", color: "var(--gold)" }}>{pc.name}</div>
+                    {identity && <div className="card-meta">{identity}</div>}
+                    {pc.playerName && <div className="card-meta">Player: {pc.playerName}</div>}
                   </div>
-                  <span className="tag pc-tag">PC</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button className="btn btn-sm" onClick={e => openEdit(pc, e)}>Edit</button>
+                    <span style={{ color: "var(--text-dim)", fontSize: "0.85rem", userSelect: "none" }}>{isExpanded ? "▲" : "▼"}</span>
+                  </div>
                 </div>
-                {pc.notes && <div className="card-preview">{pc.notes}</div>}
+
+                {isExpanded && (
+                  <div style={{ paddingTop: 4 }}>
+                    <div className="detail-section">
+                      <div className="detail-section-title">Identity</div>
+                      {pc.race && <div className="npc-detail-field"><span className="field-label">Race</span><span className="field-value">{pc.race}</span></div>}
+                      {classSubclass && <div className="npc-detail-field"><span className="field-label">Class</span><span className="field-value">{classSubclass}</span></div>}
+                      {pc.background && <div className="npc-detail-field"><span className="field-label">Background</span><span className="field-value">{pc.background}</span></div>}
+                      {pc.playerName && <div className="npc-detail-field"><span className="field-label">Player</span><span className="field-value">{pc.playerName}</span></div>}
+                    </div>
+                    {hasPersonality && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Personality</div>
+                        {pc.personality && <div className="npc-detail-field"><span className="field-label">Traits</span><span className="field-value">{pc.personality}</span></div>}
+                        {pc.bonds && <div className="npc-detail-field"><span className="field-label">Bonds</span><span className="field-value">{pc.bonds}</span></div>}
+                        {pc.ideals && <div className="npc-detail-field"><span className="field-label">Ideals</span><span className="field-value">{pc.ideals}</span></div>}
+                        {pc.flaws && <div className="npc-detail-field"><span className="field-label">Flaws</span><span className="field-value">{pc.flaws}</span></div>}
+                      </div>
+                    )}
+                    {hasCampaign && (
+                      <div className="detail-section">
+                        <div className="detail-section-title">Campaign</div>
+                        {pc.notableItems && <div className="npc-detail-field"><span className="field-label">Items</span><span className="field-value">{pc.notableItems}</span></div>}
+                        {pc.conditions && <div className="npc-detail-field"><span className="field-label">Conditions</span><span className="field-value">{pc.conditions}</span></div>}
+                        {dmNotes && <div className="npc-detail-field"><span className="field-label">DM Notes</span><span className="field-value" style={{ whiteSpace: "pre-wrap" }}>{dmNotes}</span></div>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )
-          ))}
+            );
+          })}
         </div>
       </div>
 
       <div className="settings-section">
         <div className="settings-title">Data</div>
         <p style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 12 }}>
-          {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} factions · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
+          {data.sessions.length} sessions · {data.npcs.length} NPCs · {(data.factions || []).length} organisations · {data.quests.length} quests · {data.locations.length} locations · {(data.maps || []).length} maps
         </p>
-        <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button className="btn btn-sm" onClick={handleExportCsv}>Export Party CSV</button>
+          <label className="btn btn-sm" style={{ cursor: "pointer", marginBottom: 0 }}>
+            Import Party CSV
+            <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={handleImportCsv} />
+          </label>
+          <button className="btn btn-danger btn-sm" onClick={handleReset}>Reset All Data</button>
+        </div>
       </div>
     </div>
   );
@@ -2772,9 +3085,10 @@ export default function AdventureNotes() {
   const [navTarget, setNavTarget] = useState(null);
 
   useEffect(() => {
-    const d = loadData();
-    setData(d);
-    setLoaded(true);
+    loadData().then(d => {
+      setData(d);
+      setLoaded(true);
+    });
   }, []);
 
   // When navTarget is set, switch to its tab
@@ -2793,7 +3107,7 @@ export default function AdventureNotes() {
   const tabs = [
     { key: "sessions", label: "Journal", count: data.sessions.length },
     { key: "npcs", label: "NPCs", count: data.npcs.length },
-    { key: "factions", label: "Factions", count: (data.factions || []).length },
+    { key: "factions", label: "Organisations", count: (data.factions || []).length },
     { key: "quests", label: "Quests", count: data.quests.length },
     { key: "locations", label: "Locations", count: data.locations.length },
     { key: "maps", label: "Maps", count: (data.maps || []).length },
@@ -2811,12 +3125,11 @@ export default function AdventureNotes() {
         {tabs.map(t => (
           <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
             {t.label}
-            {t.count !== null && <span className="tab-count">{t.count}</span>}
           </button>
         ))}
       </div>
       {tab === "sessions" && <SessionTab data={data} setData={setData} save={doSave} />}
-      {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} />}
+      {tab === "npcs" && <NPCTab data={data} setData={setData} save={doSave} setNavTarget={setNavTarget} />}
       {tab === "factions" && <FactionTab data={data} setData={setData} save={doSave} />}
       {tab === "quests" && <QuestTab data={data} setData={setData} save={doSave} />}
       {tab === "locations" && <LocationTab data={data} setData={setData} save={doSave} navTarget={navTarget} setNavTarget={setNavTarget} />}
