@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import * as d3 from "d3";
+import { supabase } from "./supabase";
 
-const STORAGE_KEY = "mordekai-notes-v1";
+const CAMPAIGN_ID = "mordekai";
 
 const DEFAULT_PCS = [
   { id: "pc-1", name: "King Gizzard", playerName: "", race: "Variant Human", classSubclass: "Circle of the Stars Druid", background: "Guide", personality: "", bonds: "", ideals: "", flaws: "", dmNotes: "Guided by the Lizard Wizard. Shepherd of Ends, Herald of Beginnings.", notableItems: "", conditions: "" },
@@ -37,25 +38,23 @@ function migratePCs(pcs) {
   }));
 }
 
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const merged = { ...DEFAULT_DATA, ...parsed };
-      merged.pcs = migratePCs(merged.pcs);
-      return merged;
-    }
-  } catch (e) { /* key doesn't exist yet */ }
-  return { ...DEFAULT_DATA };
+async function loadData() {
+  const { data, error } = await supabase
+    .from("adventure_notes")
+    .select("data")
+    .eq("id", CAMPAIGN_ID)
+    .single();
+  if (error || !data) return { ...DEFAULT_DATA };
+  const merged = { ...DEFAULT_DATA, ...data.data };
+  merged.pcs = migratePCs(merged.pcs);
+  return merged;
 }
 
-function saveData(data) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error("Save failed:", e);
-  }
+async function saveData(d) {
+  const { error } = await supabase
+    .from("adventure_notes")
+    .upsert({ id: CAMPAIGN_ID, data: d, updated_at: new Date().toISOString() });
+  if (error) console.error("Save failed:", error.message);
 }
 
 // ─── Tiny helpers ───
@@ -3086,9 +3085,10 @@ export default function AdventureNotes() {
   const [navTarget, setNavTarget] = useState(null);
 
   useEffect(() => {
-    const d = loadData();
-    setData(d);
-    setLoaded(true);
+    loadData().then(d => {
+      setData(d);
+      setLoaded(true);
+    });
   }, []);
 
   // When navTarget is set, switch to its tab
