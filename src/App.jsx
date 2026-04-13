@@ -109,24 +109,54 @@ body, html {
 
 .app-header {
   text-align: center;
-  padding: 18px 12px 10px;
-  border-bottom: 2px solid var(--gold-dim);
+  padding: 22px 16px 12px;
   margin-bottom: 4px;
+}
+
+.app-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
 .app-title {
   font-family: 'Cinzel Decorative', cursive;
-  font-size: 1.55rem;
+  font-size: 2rem;
   color: var(--gold);
-  text-shadow: 0 2px 8px rgba(200,168,78,0.25);
-  letter-spacing: 2px;
+  text-shadow: 0 2px 12px rgba(200,168,78,0.3);
+  letter-spacing: 4px;
+  text-transform: uppercase;
 }
 
 .app-subtitle {
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 5px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+}
+
+.app-stats {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-top: 3px;
+  font-style: italic;
+}
+
+.app-live {
+  font-style: normal;
+  font-weight: bold;
+  color: #4caf50;
   letter-spacing: 1px;
+  margin-left: 10px;
+}
+
+.app-header-rule {
+  height: 1px;
+  background: var(--border);
+  margin: 10px 0 0;
+  opacity: 0.6;
 }
 
 /* ─── Tabs ─── */
@@ -745,7 +775,7 @@ body, html {
 
 @media (max-width: 600px) {
   .app { padding: 8px; }
-  .app-title { font-size: 1.2rem; }
+  .app-title { font-size: 1.3rem; letter-spacing: 2px; }
   .form-row { flex-direction: column; }
   .form-group { min-width: 100%; }
   .toolbar { flex-direction: column; }
@@ -3130,6 +3160,22 @@ function PartyTab({ data, setData, save }) {
   );
 }
 
+// ─── D20 ICON ───
+function D20Icon({ size = 34 }) {
+  const r = size * 0.41;
+  const cx = size / 2, cy = size / 2;
+  const pts = Array.from({ length: 5 }, (_, i) => {
+    const a = (i * 72 - 90) * Math.PI / 180;
+    return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+  }).join(" ");
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "inline-block", flexShrink: 0 }}>
+      <polygon points={pts} fill="none" stroke="var(--gold)" strokeWidth="1.5" />
+      <text x={cx} y={cy + size * 0.1} textAnchor="middle" dominantBaseline="middle" fill="var(--gold)" fontSize={size * 0.28} fontFamily="'Cinzel Decorative', cursive">20</text>
+    </svg>
+  );
+}
+
 // ─── MAIN APP ───
 export default function AdventureNotes() {
   const [data, setData] = useState(null);
@@ -3171,8 +3217,17 @@ export default function AdventureNotes() {
     <div className="app">
       <style>{css}</style>
       <div className="app-header">
-        <div className="app-title">Mordekai's Broken Seal</div>
-        <div className="app-subtitle">Adventure Chronicle</div>
+        <div className="app-title-row">
+          <D20Icon size={36} />
+          <div className="app-title">Mordekai's Broken Seal</div>
+          <D20Icon size={36} />
+        </div>
+        <div className="app-subtitle">Chronicle of Battle</div>
+        <div className="app-stats">
+          {data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party
+          <span className="app-live">● LIVE</span>
+        </div>
+        <div className="app-header-rule" />
       </div>
       <div className="tabs">
         {tabs.map(t => (
