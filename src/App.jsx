@@ -109,7 +109,7 @@ body, html {
 
 .app-header {
   text-align: center;
-  padding: 22px 16px 12px;
+  padding: 24px 16px 14px;
   margin-bottom: 4px;
 }
 
@@ -117,30 +117,31 @@ body, html {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 18px;
 }
 
 .app-title {
   font-family: 'Cinzel Decorative', cursive;
-  font-size: 2rem;
+  font-size: 2.6rem;
   color: var(--gold);
-  text-shadow: 0 2px 12px rgba(200,168,78,0.3);
-  letter-spacing: 4px;
+  text-shadow: 0 2px 14px rgba(200,168,78,0.35);
+  letter-spacing: 5px;
   text-transform: uppercase;
+  line-height: 1.1;
 }
 
 .app-subtitle {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--text-dim);
-  margin-top: 5px;
-  letter-spacing: 6px;
+  margin-top: 6px;
+  letter-spacing: 10px;
   text-transform: uppercase;
 }
 
 .app-stats {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-dim);
-  margin-top: 3px;
+  margin-top: 4px;
   font-style: italic;
 }
 
@@ -148,15 +149,16 @@ body, html {
   font-style: normal;
   font-weight: bold;
   color: #4caf50;
-  letter-spacing: 1px;
-  margin-left: 10px;
+  letter-spacing: 2px;
+  margin-left: 8px;
+  font-size: 0.65rem;
 }
 
 .app-header-rule {
   height: 1px;
   background: var(--border);
-  margin: 10px 0 0;
-  opacity: 0.6;
+  margin: 12px 0 0;
+  opacity: 0.5;
 }
 
 /* ─── Tabs ─── */
@@ -775,7 +777,7 @@ body, html {
 
 @media (max-width: 600px) {
   .app { padding: 8px; }
-  .app-title { font-size: 1.3rem; letter-spacing: 2px; }
+  .app-title { font-size: 1.4rem; letter-spacing: 2px; }
   .form-row { flex-direction: column; }
   .form-group { min-width: 100%; }
   .toolbar { flex-direction: column; }
@@ -3218,9 +3220,9 @@ export default function AdventureNotes() {
       <style>{css}</style>
       <div className="app-header">
         <div className="app-title-row">
-          <D20Icon size={36} />
+          <D20Icon size={46} />
           <div className="app-title">Mordekai's Broken Seal</div>
-          <D20Icon size={36} />
+          <D20Icon size={46} />
         </div>
         <div className="app-subtitle">Adventure Chronicle</div>
         <div className="app-stats">
