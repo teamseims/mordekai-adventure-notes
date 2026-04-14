@@ -3222,7 +3222,7 @@ export default function AdventureNotes() {
           <div className="app-title">Mordekai's Broken Seal</div>
           <D20Icon size={36} />
         </div>
-        <div className="app-subtitle">Chronicle of Battle</div>
+        <div className="app-subtitle">Adventure Chronicle</div>
         <div className="app-stats">
           {data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party
           <span className="app-live">● LIVE</span>
