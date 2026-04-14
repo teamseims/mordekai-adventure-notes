@@ -117,7 +117,7 @@ body, html {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 12px;
 }
 
 .app-title {
@@ -131,34 +131,51 @@ body, html {
 }
 
 .app-subtitle {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--text-dim);
-  margin-top: 6px;
-  letter-spacing: 10px;
+  margin-top: 5px;
+  letter-spacing: 8px;
   text-transform: uppercase;
 }
 
 .app-stats {
   font-size: 0.68rem;
   color: var(--text-dim);
-  margin-top: 4px;
+  margin-top: 5px;
   font-style: italic;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
 }
 
 .app-live {
   font-style: normal;
-  font-weight: bold;
+  font-weight: 600;
   color: #4caf50;
   letter-spacing: 2px;
-  margin-left: 8px;
-  font-size: 0.65rem;
+  margin-left: 10px;
+  font-size: 0.62rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  box-shadow: 0 0 4px #4caf50;
 }
 
 .app-header-rule {
   height: 1px;
-  background: var(--border);
+  background: linear-gradient(to right, transparent, var(--gold-dim) 30%, var(--gold-dim) 70%, transparent);
   margin: 12px 0 0;
-  opacity: 0.5;
+  opacity: 0.7;
 }
 
 /* ─── Tabs ─── */
@@ -3172,7 +3189,7 @@ function D20Icon({ size = 34 }) {
   }).join(" ");
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "inline-block", flexShrink: 0 }}>
-      <polygon points={pts} fill="none" stroke="var(--gold)" strokeWidth="1.5" />
+      <polygon points={pts} fill="none" stroke="var(--gold)" strokeWidth="1" />
       <text x={cx} y={cy + size * 0.1} textAnchor="middle" dominantBaseline="middle" fill="var(--gold)" fontSize={size * 0.28} fontFamily="'Cinzel Decorative', cursive">20</text>
     </svg>
   );
@@ -3220,14 +3237,14 @@ export default function AdventureNotes() {
       <style>{css}</style>
       <div className="app-header">
         <div className="app-title-row">
-          <D20Icon size={46} />
+          <D20Icon size={32} />
           <div className="app-title">Mordekai's Broken Seal</div>
-          <D20Icon size={46} />
+          <D20Icon size={32} />
         </div>
-        <div className="app-subtitle">Adventure Chronicle</div>
+        <div className="app-subtitle">Chronicle of Battle</div>
         <div className="app-stats">
           {data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party
-          <span className="app-live">● LIVE</span>
+          <span className="app-live">LIVE</span>
         </div>
         <div className="app-header-rule" />
       </div>
