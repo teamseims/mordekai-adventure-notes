@@ -123,6 +123,7 @@ body, html {
 .app-title {
   font-family: 'Cinzel Decorative', cursive;
   font-size: 2.6rem;
+  font-weight: 400;
   color: var(--gold);
   text-shadow: 0 2px 14px rgba(200,168,78,0.35);
   letter-spacing: 5px;
