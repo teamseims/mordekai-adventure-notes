@@ -3236,18 +3236,17 @@ export default function AdventureNotes() {
   return (
     <div className="app">
       <style>{css}</style>
-      <div className="app-header">
-        <div className="app-title-row">
-          <D20Icon size={32} />
-          <div className="app-title">Mordekai's Broken Seal</div>
-          <D20Icon size={32} />
+      <div style={{ textAlign:"center", padding:"24px 16px 14px", marginBottom:"4px" }}>
+        <div style={{ fontFamily:"'Cinzel Decorative', cursive", fontSize:"2.6rem", fontWeight:400, color:"#c8a84e", textShadow:"0 2px 14px rgba(200,168,78,0.35)", letterSpacing:"5px", textTransform:"uppercase", lineHeight:1.1, margin:0 }}>
+          MORDEKAI'S BROKEN SEAL
         </div>
-        <div className="app-subtitle">Chronicle of Battle</div>
-        <div className="app-stats">
-          {data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party
-          <span className="app-live">LIVE</span>
+        <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"5px", letterSpacing:"8px", textTransform:"uppercase", fontFamily:"'MedievalSharp', cursive" }}>
+          Chronicles of Adventuring
         </div>
-        <div className="app-header-rule" />
+        <div style={{ fontSize:"0.68rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
+          <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party</span>
+        </div>
+        <div style={{ height:"1px", background:"linear-gradient(to right, transparent, #8a7535 30%, #8a7535 70%, transparent)", margin:"12px 0 0", opacity:0.7 }} />
       </div>
       <div className="tabs">
         {tabs.map(t => (
