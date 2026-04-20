@@ -3244,7 +3244,11 @@ export default function AdventureNotes() {
           Chronicles of Adventuring
         </div>
         <div style={{ fontSize:"0.68rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
-          <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} · {(data.pcs || []).length} {(data.pcs || []).length === 1 ? "adventurer" : "adventurers"} in the party</span>
+          <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} {(data.pcs || []).length === 1 ? "adventurer" : "adventurers"} in the party</span>
+          <span style={{ fontStyle:"normal", fontWeight:600, color:"#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px" }}>
+            <span style={{ width:"6px", height:"6px", borderRadius:"50%", display:"inline-block", background:"#4caf50", boxShadow:"0 0 4px #4caf50" }} />
+            Live
+          </span>
         </div>
         <div style={{ height:"1px", background:"linear-gradient(to right, transparent, #8a7535 30%, #8a7535 70%, transparent)", margin:"12px 0 0", opacity:0.7 }} />
       </div>
