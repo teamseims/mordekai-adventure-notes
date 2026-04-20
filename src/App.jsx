@@ -54,7 +54,7 @@ async function saveData(d) {
   const { error } = await supabase
     .from("adventure_notes")
     .upsert({ id: CAMPAIGN_ID, data: d, updated_at: new Date().toISOString() });
-  if (error) console.error("Save failed:", error.message);
+  if (error) throw new Error(error.message);
 }
 
 // ─── Tiny helpers ───
@@ -3202,6 +3202,7 @@ export default function AdventureNotes() {
   const [tab, setTab] = useState("sessions");
   const [loaded, setLoaded] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("saved");
 
   useEffect(() => {
     loadData().then(d => {
@@ -3217,7 +3218,15 @@ export default function AdventureNotes() {
     }
   }, [navTarget]);
 
-  const doSave = useCallback((d) => saveData(d), []);
+  const doSave = useCallback(async (d) => {
+    setSyncStatus("saving");
+    try {
+      await saveData(d);
+      setSyncStatus("saved");
+    } catch {
+      setSyncStatus("error");
+    }
+  }, []);
 
   if (!loaded || !data) {
     return <div className="app"><style>{css}</style><div className="loading">Unfurling the scrolls...</div></div>;
@@ -3245,9 +3254,9 @@ export default function AdventureNotes() {
         </div>
         <div style={{ fontSize:"0.68rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
           <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} {(data.pcs || []).length === 1 ? "adventurer" : "adventurers"} in the party</span>
-          <span style={{ fontStyle:"normal", fontWeight:600, color:"#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px" }}>
-            <span style={{ width:"6px", height:"6px", borderRadius:"50%", display:"inline-block", background:"#4caf50", boxShadow:"0 0 4px #4caf50" }} />
-            Live
+          <span style={{ fontStyle:"normal", fontWeight:600, color: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px" }}>
+            <span style={{ width:"6px", height:"6px", borderRadius:"50%", display:"inline-block", background: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", boxShadow:`0 0 4px ${syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50"}` }} />
+            {syncStatus === "error" ? "Sync error" : syncStatus === "saving" ? "Saving…" : "Live"}
           </span>
         </div>
         <div style={{ height:"1px", background:"linear-gradient(to right, transparent, #8a7535 30%, #8a7535 70%, transparent)", margin:"12px 0 0", opacity:0.7 }} />
