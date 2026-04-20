@@ -3243,9 +3243,6 @@ export default function AdventureNotes() {
         <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"5px", letterSpacing:"8px", textTransform:"uppercase", fontFamily:"'MedievalSharp', cursive" }}>
           Chronicles of Adventuring
         </div>
-        <div style={{ fontSize:"0.68rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
-          <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} adventurers in the party</span>
-        </div>
         <div style={{ height:"1px", background:"linear-gradient(to right, transparent, #8a7535 30%, #8a7535 70%, transparent)", margin:"12px 0 0", opacity:0.7 }} />
       </div>
       <div className="tabs">
