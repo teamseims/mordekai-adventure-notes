@@ -3246,13 +3246,13 @@ export default function AdventureNotes() {
     <div className="app">
       <style>{css}</style>
       <div style={{ textAlign:"center", padding:"24px 16px 14px", marginBottom:"4px" }}>
-        <div style={{ fontFamily:"'Cinzel Decorative', cursive", fontSize:"2.6rem", fontWeight:400, color:"#c8a84e", textShadow:"0 2px 14px rgba(200,168,78,0.35)", letterSpacing:"5px", textTransform:"uppercase", lineHeight:1.1, margin:0 }}>
+        <div style={{ fontFamily:"'Cinzel Decorative', cursive", fontSize:"clamp(1.15rem, 5.2vw, 2.6rem)", fontWeight:400, color:"#c8a84e", textShadow:"0 2px 14px rgba(200,168,78,0.35)", letterSpacing:"clamp(1.5px, 0.7vw, 5px)", textTransform:"uppercase", lineHeight:1.1, margin:0 }}>
           MORDEKAI'S BROKEN SEAL
         </div>
-        <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"10px", letterSpacing:"8px", textTransform:"uppercase", fontFamily:"'MedievalSharp', cursive" }}>
+        <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"5px", letterSpacing:"8px", textTransform:"uppercase", fontFamily:"'MedievalSharp', cursive" }}>
           Chronicles of Adventuring
         </div>
-        <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
+        <div style={{ fontSize:"0.68rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
           <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} {(data.pcs || []).length === 1 ? "adventurer" : "adventurers"} in the party</span>
           <span style={{ fontStyle:"normal", fontWeight:600, color: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px" }}>
             <span style={{ width:"6px", height:"6px", borderRadius:"50%", display:"inline-block", background: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", boxShadow:`0 0 4px ${syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50"}` }} />
