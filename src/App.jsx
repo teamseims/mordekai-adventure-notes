@@ -3218,13 +3218,19 @@ export default function AdventureNotes() {
     }
   }, [navTarget]);
 
+  const [syncError, setSyncError] = useState(null);
+
   const doSave = useCallback(async (d) => {
     setSyncStatus("saving");
+    setSyncError(null);
     try {
       await saveData(d);
       setSyncStatus("saved");
-    } catch {
+    } catch (err) {
+      const msg = err?.message || String(err);
       setSyncStatus("error");
+      setSyncError(msg);
+      console.error("Supabase save failed:", msg);
     }
   }, []);
 
@@ -3254,7 +3260,7 @@ export default function AdventureNotes() {
         </div>
         <div style={{ fontSize:"0.6rem", color:"#8a7d65", marginTop:"5px", fontStyle:"italic", display:"flex", alignItems:"center", justifyContent:"center", gap:0 }}>
           <span>{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"} recorded · {(data.pcs || []).length} {(data.pcs || []).length === 1 ? "adventurer" : "adventurers"} in the party</span>
-          <span style={{ fontStyle:"normal", fontWeight:600, color: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px" }}>
+          <span title={syncStatus === "error" && syncError ? syncError : undefined} style={{ fontStyle:"normal", fontWeight:600, color: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", letterSpacing:"2px", marginLeft:"10px", fontSize:"0.62rem", display:"inline-flex", alignItems:"center", gap:"4px", cursor: syncStatus === "error" ? "help" : "default" }}>
             <span style={{ width:"6px", height:"6px", borderRadius:"50%", display:"inline-block", background: syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50", boxShadow:`0 0 4px ${syncStatus === "error" ? "#d4442a" : syncStatus === "saving" ? "#daa520" : "#4caf50"}` }} />
             {syncStatus === "error" ? "Sync error" : syncStatus === "saving" ? "Saving…" : "Live"}
           </span>
